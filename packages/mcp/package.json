@@ -1,0 +1,45 @@
+{
+  "name": "@datahogo/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Data Hogo — lets Claude, Cursor, and other MCP clients scan a project for security issues directly.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datahogo/datahogo.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://datahogo.com",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "datahogo-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "scanner",
+    "claude",
+    "cursor"
+  ],
+  "dependencies": {
+    "@datahogo/core": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ignore": "^5.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

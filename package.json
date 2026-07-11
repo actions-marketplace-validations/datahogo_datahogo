@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @datahogo/core && npm run build -w datahogo",
+    "build": "npm run build -w @datahogo/core && npm run build -w datahogo && npm run build -w @datahogo/mcp",
     "test": "npm run test --workspaces"
   }
 }
