@@ -1,0 +1,227 @@
+rules:
+  # ID 121: ECB mode in cipher
+  - id: datahogo-ecb-mode-cipher
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createCipheriv("aes-$BITS-ecb", ...)
+          - pattern: crypto.createDecipheriv("aes-$BITS-ecb", ...)
+          - pattern: crypto.createCipheriv('aes-$BITS-ecb', ...)
+          - pattern: crypto.createDecipheriv('aes-$BITS-ecb', ...)
+    message: "ECB cipher mode does not use an IV and reveals patterns in plaintext - use CBC or GCM mode instead"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 121
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  # ID 122: Static IV / Nonce
+  - id: datahogo-static-iv-buffer
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const iv = Buffer.alloc($SIZE, 0)
+          - pattern: |
+              const iv = Buffer.alloc($SIZE)
+          - pattern: |
+              const nonce = Buffer.alloc($SIZE, 0)
+          - pattern: |
+              const iv = Buffer.from("$STATIC_STRING")
+    message: "Static or zero-filled IV/nonce makes encryption deterministic - use crypto.randomBytes() for each encryption"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 122
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-static-iv-hardcoded
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $IV = "$STRING"
+              ...
+              crypto.createCipheriv($ALGO, $KEY, $IV)
+          - pattern: |
+              const $IV = '$STRING'
+              ...
+              crypto.createCipheriv($ALGO, $KEY, $IV)
+    message: "Hardcoded IV/nonce in cipher - generate a unique random IV for every encryption operation"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 122
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  # ID 123: Weak key size
+  - id: datahogo-weak-rsa-key-size
+    patterns:
+      - pattern-either:
+          - pattern: |
+              crypto.generateKeyPair("rsa", { modulusLength: $SIZE, ... }, ...)
+          - pattern: |
+              crypto.generateKeyPairSync("rsa", { modulusLength: $SIZE, ... })
+      - metavariable-regex:
+          metavariable: $SIZE
+          regex: ^(512|1024)$
+    message: "RSA key size below 2048 bits is cryptographically weak - use at least 2048 bits (4096 recommended)"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 123
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-weak-aes-key-size
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createCipheriv("aes-64-$MODE", ...)
+          - pattern: crypto.createCipheriv('aes-64-$MODE', ...)
+    message: "AES key size below 128 bits is insufficient - use AES-128, AES-192, or AES-256"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 123
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  # ID 124: Certificate validation disabled
+  - id: datahogo-tls-reject-unauthorized-env
+    patterns:
+      - pattern-either:
+          - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+          - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+          - pattern: process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    message: "Disabling TLS certificate validation exposes all HTTPS connections to man-in-the-middle attacks"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 124
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-tls-reject-unauthorized-agent
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new https.Agent({ rejectUnauthorized: false })
+          - pattern: |
+              https.request({ ..., rejectUnauthorized: false, ... })
+          - pattern: |
+              axios.create({ ..., httpsAgent: new https.Agent({ rejectUnauthorized: false }) })
+    message: "TLS certificate validation disabled in HTTPS agent - remove rejectUnauthorized: false before deploying to production"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 124
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  # ID 125: Weak PRNG for security tokens
+  - id: datahogo-math-random-token
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $TOKEN = Math.random()
+          - pattern: |
+              const $ID = Math.random().toString(...)
+          - pattern: |
+              token = Math.random().toString($BASE).slice($N)
+          - pattern: |
+              id = Math.random().toString($BASE).substr($N)
+    message: "Math.random() is not cryptographically secure - use crypto.randomBytes() or crypto.randomUUID() for tokens and IDs"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 125
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-date-now-token
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $TOKEN = Date.now().toString()
+          - pattern: |
+              const $TOKEN = String(Date.now())
+          - pattern: |
+              token: Date.now()
+      - metavariable-regex:
+          metavariable: $TOKEN
+          regex: .*(token|secret|key|reset|nonce|csrf|session).*
+    message: "Date.now() is predictable and should not be used for security tokens - use crypto.randomBytes()"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 125
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  # ID 126: JWT algorithm none
+  - id: datahogo-jwt-algorithm-none
+    patterns:
+      - pattern-either:
+          - pattern: jwt.verify($TOKEN, $SECRET, { algorithms: [..., "none", ...] })
+          - pattern: jwt.verify($TOKEN, $SECRET, { algorithms: ["none"] })
+          - pattern: jwt.sign($PAYLOAD, $SECRET, { algorithm: "none" })
+          - pattern: jwt.sign($PAYLOAD, "", ...)
+    message: "JWT 'none' algorithm allows forged tokens with no signature verification - always use a strong algorithm (RS256, ES256)"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 126
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-jwt-empty-secret
+    patterns:
+      - pattern-either:
+          - pattern: jwt.verify($TOKEN, "")
+          - pattern: jwt.verify($TOKEN, '')
+          - pattern: jwt.verify($TOKEN, null)
+          - pattern: jwt.verify($TOKEN, undefined)
+    message: "JWT verification with empty or null secret disables signature validation - always use a strong secret"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 126
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  # ID 127: Hardcoded encryption key
+  - id: datahogo-hardcoded-encryption-key-string
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $KEY = "$LITERAL_KEY"
+              ...
+              crypto.createCipheriv($ALGO, $KEY, ...)
+          - pattern: |
+              const $KEY = '$LITERAL_KEY'
+              ...
+              crypto.createCipheriv($ALGO, $KEY, ...)
+          - pattern: |
+              crypto.createCipheriv($ALGO, "$LITERAL_KEY", ...)
+          - pattern: |
+              crypto.createCipheriv($ALGO, '$LITERAL_KEY', ...)
+    message: "Hardcoded encryption key in source code - load from environment variables or secrets manager"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 127
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-hardcoded-hmac-key
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHmac($ALGO, "$LITERAL_KEY")
+          - pattern: crypto.createHmac($ALGO, '$LITERAL_KEY')
+    message: "Hardcoded HMAC key in source code - load secret from environment variables"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 127
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"

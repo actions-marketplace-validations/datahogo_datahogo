@@ -1,0 +1,588 @@
+rules:
+  # =============================================
+  # OWASP A01:2021 - Broken Access Control
+  # =============================================
+
+  - id: datahogo-api-route-no-auth
+    patterns:
+      - pattern-inside: |
+          export async function $METHOD(...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(GET|POST|PUT|PATCH|DELETE|HEAD)$
+      - pattern-not-inside: |
+          export async function $METHOD(...) {
+            ...
+            $AUTH.getUser(...)
+            ...
+          }
+      - pattern-not-inside: |
+          export async function $METHOD(...) {
+            ...
+            $AUTH.auth.getUser(...)
+            ...
+          }
+      - pattern-not-inside: |
+          export async function $METHOD(...) {
+            ...
+            await getUser(...)
+            ...
+          }
+      - pattern-not-inside: |
+          export async function $METHOD(...) {
+            ...
+            verifyAuth(...)
+            ...
+          }
+    message: "API route handler does not verify authentication. Every API endpoint must check user session before processing requests."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 1
+      datahogo_category: "web-owasp"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-open-redirect
+    patterns:
+      - pattern-either:
+          - pattern: redirect($URL)
+          - pattern: $RES.redirect($URL)
+          - pattern: NextResponse.redirect($URL)
+      - pattern-either:
+          - pattern-inside: |
+              $URL = $REQ.query.$PARAM
+              ...
+          - pattern-inside: |
+              $URL = $PARAMS.get(...)
+              ...
+          - pattern-inside: |
+              $URL = $REQ.body.$FIELD
+              ...
+    message: "Open redirect vulnerability. User-controlled redirect targets can be abused for phishing attacks. Validate redirect URLs against an allowlist."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 119
+      datahogo_category: "logic"
+      owasp_ref: "A01:2021"
+
+  # =============================================
+  # OWASP A02:2021 - Cryptographic Failures
+  # =============================================
+
+  - id: datahogo-weak-hash-md5
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash("md5")
+          - pattern: crypto.createHash('md5')
+    message: "MD5 is cryptographically broken and unsuitable for security purposes. Use SHA-256, SHA-3, or bcrypt for password hashing."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 2
+      datahogo_category: "web-owasp"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-weak-hash-sha1
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createHash("sha1")
+          - pattern: crypto.createHash('sha1')
+    message: "SHA-1 is deprecated due to collision vulnerabilities. Use SHA-256, SHA-3, or bcrypt for password hashing."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 2
+      datahogo_category: "web-owasp"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-hardcoded-encryption-key
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createCipheriv($ALG, "...", ...)
+          - pattern: crypto.createCipheriv($ALG, '...', ...)
+          - pattern: crypto.createDecipheriv($ALG, "...", ...)
+          - pattern: crypto.createDecipheriv($ALG, '...', ...)
+      - metavariable-regex:
+          metavariable: $ALG
+          regex: .*
+    message: "Hardcoded encryption key detected. Keys must be stored in environment variables or secure key management systems."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 121
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-math-random-security
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $TOKEN = ... Math.random() ...
+          - pattern: |
+              $SECRET = ... Math.random() ...
+          - pattern: |
+              $KEY = ... Math.random() ...
+          - pattern: |
+              $SESSION = ... Math.random() ...
+          - pattern: |
+              $NONCE = ... Math.random() ...
+    message: "Math.random() is not cryptographically secure. Use crypto.randomBytes() or crypto.getRandomValues() for security-sensitive random values."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 125
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-tls-reject-unauthorized
+    patterns:
+      - pattern-either:
+          - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+          - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+          - pattern: $OPTS.rejectUnauthorized = false
+    message: "TLS certificate validation is disabled. This makes the application vulnerable to man-in-the-middle attacks."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 124
+      datahogo_category: "cryptography"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-plaintext-password
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $VAR = "..."
+          - pattern: |
+              let $VAR = "..."
+          - pattern: |
+              var $VAR = "..."
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (password|passwd|pwd|pass)
+      - pattern-not: const $VAR = ""
+      - pattern-not: const $VAR = process.env.$_
+    message: "Hardcoded password detected. Store passwords securely in environment variables and hash them with bcrypt or Argon2."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 55
+      datahogo_category: "vibecoding"
+      owasp_ref: "A02:2021"
+
+  # =============================================
+  # OWASP A03:2021 - Injection
+  # =============================================
+
+  - id: datahogo-sql-injection-template-literal
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query(`... ${$VAR} ...`)
+          - pattern: $DB.execute(`... ${$VAR} ...`)
+          - pattern: $DB.$queryRaw(`... ${$VAR} ...`)
+          - pattern: sequelize.query(`... ${$VAR} ...`)
+    message: "Possible SQL injection via string interpolation in database query. Use parameterized queries or prepared statements."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 5
+      datahogo_category: "web-owasp"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-sql-injection-concatenation
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query($STR + $VAR + ...)
+          - pattern: $DB.execute($STR + $VAR + ...)
+          - pattern: $DB.query($STR + $VAR)
+    message: "SQL injection via string concatenation. Use parameterized queries instead of concatenating user input into SQL statements."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 5
+      datahogo_category: "web-owasp"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-eval-usage
+    patterns:
+      - pattern-either:
+          - pattern: eval($CODE)
+          - pattern: new Function($CODE)
+          - pattern: Function($CODE)
+    message: "eval() or Function() constructor can execute arbitrary code and lead to code injection. Avoid dynamic code execution entirely."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 61
+      datahogo_category: "vibecoding"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-command-injection
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec(`... ${$VAR} ...`)
+          - pattern: child_process.execSync(`... ${$VAR} ...`)
+          - pattern: exec(`... ${$VAR} ...`)
+          - pattern: execSync(`... ${$VAR} ...`)
+      - pattern-not: child_process.exec(`$STATIC`)
+    message: "Command injection vulnerability. User input is interpolated into shell command. Use execFile() with argument array instead."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 75
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-nosql-injection
+    patterns:
+      - pattern-either:
+          - pattern: $DB.find($REQ.body)
+          - pattern: $DB.find($REQ.query)
+          - pattern: $DB.findOne($REQ.body)
+          - pattern: $DB.findOne($REQ.query)
+          - pattern: $COLLECTION.find($REQ.body)
+    message: "NoSQL injection risk. Request data is passed directly to database query. Validate and sanitize input before using in queries."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 102
+      datahogo_category: "database"
+      owasp_ref: "A03:2021"
+
+  # =============================================
+  # OWASP A05:2021 - Security Misconfiguration
+  # =============================================
+
+  - id: datahogo-cors-wildcard
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $HEADERS.set("Access-Control-Allow-Origin", "*")
+          - pattern: |
+              $RES.setHeader("Access-Control-Allow-Origin", "*")
+          - pattern: |
+              { ..., "Access-Control-Allow-Origin": "*", ... }
+    message: "CORS wildcard allows any origin to access the API. Restrict to specific trusted domains."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 4
+      datahogo_category: "web-owasp"
+      owasp_ref: "A05:2021"
+
+  - id: datahogo-debug-mode-production
+    patterns:
+      - pattern-either:
+          - pattern: |
+              { ..., debug: true, ... }
+          - pattern: process.env.NODE_ENV = "development"
+          - pattern: app.set("env", "development")
+    message: "Debug mode enabled. This can expose sensitive information in production. Ensure debug mode is disabled in production environments."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 4
+      datahogo_category: "web-owasp"
+      owasp_ref: "A05:2021"
+
+  # =============================================
+  # OWASP A06:2021 - Vulnerable Components
+  # =============================================
+  # (Handled by dependencies.ts engine - npm audit)
+
+  # =============================================
+  # OWASP A07:2021 - Identification & Auth Failures
+  # =============================================
+
+  - id: datahogo-jwt-no-expiry
+    patterns:
+      - pattern: jwt.sign($PAYLOAD, $SECRET, ...)
+      - pattern-not: jwt.sign($PAYLOAD, $SECRET, { ..., expiresIn: ..., ... })
+      - pattern-not: jwt.sign($PAYLOAD, $SECRET, { ..., exp: ..., ... })
+    message: "JWT token issued without expiration time. Always set expiresIn to limit token lifetime and reduce attack window."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 7
+      datahogo_category: "web-owasp"
+      owasp_ref: "A07:2021"
+
+  - id: datahogo-jwt-algorithm-none
+    patterns:
+      - pattern: |
+          jwt.sign($PAYLOAD, $SECRET, { ..., algorithm: "none", ... })
+    message: "JWT with algorithm 'none' bypasses signature verification. Always use a secure algorithm like HS256, RS256, or ES256."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 126
+      datahogo_category: "cryptography"
+      owasp_ref: "A07:2021"
+
+  - id: datahogo-tokens-in-localstorage
+    patterns:
+      - pattern-either:
+          - pattern: localStorage.setItem("token", ...)
+          - pattern: localStorage.setItem("jwt", ...)
+          - pattern: localStorage.setItem("access_token", ...)
+          - pattern: localStorage.setItem("refresh_token", ...)
+          - pattern: localStorage.setItem("auth", ...)
+          - pattern: localStorage.setItem("session", ...)
+      - pattern-not: localStorage.setItem($KEY, $NONTOK)
+    message: "Authentication tokens stored in localStorage are vulnerable to XSS attacks. Use httpOnly cookies for secure token storage."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 47
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A07:2021"
+
+  # =============================================
+  # OWASP A08:2021 - Software & Data Integrity
+  # =============================================
+
+  - id: datahogo-unsafe-deserialization
+    patterns:
+      - pattern-either:
+          - pattern: unserialize($INPUT)
+          - pattern: deserialize($INPUT)
+          - pattern: $PKG.unserialize($INPUT)
+          - pattern: $PKG.deserialize($INPUT)
+      - pattern-either:
+          - pattern-inside: |
+              $INPUT = $REQ.body
+              ...
+          - pattern-inside: |
+              $INPUT = $REQ.query
+              ...
+          - pattern-inside: |
+              $INPUT = await $REQ.json()
+              ...
+    message: "Insecure deserialization of user input can lead to remote code execution. Validate and sanitize before deserializing."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 8
+      datahogo_category: "web-owasp"
+      owasp_ref: "A08:2021"
+
+  # =============================================
+  # OWASP A09:2021 - Security Logging Failures
+  # =============================================
+
+  - id: datahogo-console-log-sensitive-data
+    patterns:
+      - pattern-either:
+          - pattern: console.log(..., $REQ.headers, ...)
+          - pattern: console.log(..., process.env, ...)
+          - pattern: console.log(..., $TOKEN, ...)
+          - pattern: console.log(..., $PASSWORD, ...)
+          - pattern: console.log(..., $SECRET, ...)
+      - metavariable-pattern:
+          metavariable: $TOKEN
+          patterns:
+            - pattern-regex: .*(token|jwt|key|apikey).*
+      - metavariable-pattern:
+          metavariable: $PASSWORD
+          patterns:
+            - pattern-regex: .*(password|passwd|pwd).*
+      - metavariable-pattern:
+          metavariable: $SECRET
+          patterns:
+            - pattern-regex: .*(secret|credential).*
+    message: "Logging sensitive data (credentials, tokens, environment variables). Never log secrets, use structured logging with sanitization."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 9
+      datahogo_category: "web-owasp"
+      owasp_ref: "A09:2021"
+
+  - id: datahogo-env-vars-logged
+    patterns:
+      - pattern-either:
+          - pattern: console.log(process.env)
+          - pattern: console.log(..., process.env, ...)
+          - pattern: console.info(process.env)
+          - pattern: console.error(process.env)
+          - pattern: logger.info(process.env)
+          - pattern: logger.debug(process.env)
+    message: "Environment variables contain sensitive configuration. Never log the entire process.env object."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 134
+      datahogo_category: "serverless"
+      owasp_ref: "A09:2021"
+
+  # =============================================
+  # OWASP A10:2021 - Server-Side Request Forgery
+  # =============================================
+
+  - id: datahogo-ssrf-fetch-user-input
+    patterns:
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: axios.get($URL, ...)
+          - pattern: axios.post($URL, ...)
+          - pattern: $HTTP.get($URL, ...)
+          - pattern: $HTTP.request($URL, ...)
+      - pattern-either:
+          - pattern-inside: |
+              $URL = $REQ.body.$FIELD
+              ...
+          - pattern-inside: |
+              $URL = $REQ.query.$PARAM
+              ...
+          - pattern-inside: |
+              $URL = $PARAMS.get(...)
+              ...
+    message: "SSRF vulnerability: User-controlled URL in HTTP request. Validate URLs against an allowlist of domains and protocols."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 10
+      datahogo_category: "web-owasp"
+      owasp_ref: "A10:2021"
+
+  # =============================================
+  # Client-Side Validation Only
+  # =============================================
+
+  - id: datahogo-client-side-auth-check
+    patterns:
+      - pattern-inside: |
+          "use client"
+          ...
+      - pattern-either:
+          - pattern: if ($USER.isAdmin) { ... }
+          - pattern: if ($USER.role === "admin") { ... }
+          - pattern: if (isAuthenticated) { ... }
+    message: "Authorization logic in client component. Auth checks must be performed on the server-side, not in client code."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 6
+      datahogo_category: "web-owasp"
+      owasp_ref: "A04:2021"
+
+  # =============================================
+  # Path Traversal
+  # =============================================
+
+  - id: datahogo-path-traversal
+    patterns:
+      - pattern-either:
+          - pattern: fs.readFile($PATH, ...)
+          - pattern: fs.readFileSync($PATH, ...)
+          - pattern: fs.writeFile($PATH, ...)
+          - pattern: fs.createReadStream($PATH, ...)
+          - pattern: fs.unlink($PATH, ...)
+      - pattern-either:
+          - pattern-inside: |
+              $PATH = ... + $REQ.query.$PARAM
+              ...
+          - pattern-inside: |
+              $PATH = ... + $REQ.body.$FIELD
+              ...
+          - pattern-inside: |
+              $PATH = ... + $PARAMS.get(...)
+              ...
+          - pattern-inside: |
+              $PATH = `... ${$REQ.query.$PARAM} ...`
+              ...
+    message: "Path traversal vulnerability. User input is used in file path without validation. Sanitize paths and restrict to allowed directories."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 106
+      datahogo_category: "files"
+      owasp_ref: "A01:2021"
+
+  # =============================================
+  # React / Frontend Specific
+  # =============================================
+
+  - id: datahogo-dangerouslysetinnerhtml
+    patterns:
+      - pattern: <$EL dangerouslySetInnerHTML={{__html: $HTML}} />
+      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: DOMPurify.sanitize($HTML)}} />
+    message: "dangerouslySetInnerHTML without sanitization can lead to XSS attacks. Use DOMPurify to sanitize HTML before rendering."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 46
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A03:2021"
+
+  # =============================================
+  # Mass Assignment
+  # =============================================
+
+  - id: datahogo-mass-assignment
+    patterns:
+      - pattern-either:
+          - pattern: $DB.update($REQ.body)
+          - pattern: $DB.create($REQ.body)
+          - pattern: $DB.insert($REQ.body)
+          - pattern: $MODEL.update($REQ.body)
+          - pattern: $MODEL.create($REQ.body)
+      - pattern-not-inside: |
+          const $VALIDATED = $SCHEMA.parse($REQ.body)
+          ...
+    message: "Mass assignment vulnerability. Request body is passed directly to database without validation. Use Zod or similar to validate input."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 98
+      datahogo_category: "api"
+      owasp_ref: "A01:2021"
+
+  # =============================================
+  # Prototype Pollution
+  # =============================================
+
+  - id: datahogo-prototype-pollution-assign
+    patterns:
+      - pattern-either:
+          - pattern: Object.assign($TARGET, $REQ.body)
+          - pattern: Object.assign($TARGET, $REQ.query)
+          - pattern: |
+              { ...$REQ.body }
+          - pattern: |
+              { ...$REQ.query }
+    message: "Prototype pollution risk. Spreading or assigning request data can pollute Object.prototype. Validate input structure first."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 128
+      datahogo_category: "javascript"
+      owasp_ref: "A03:2021"
+
+  # =============================================
+  # Price/Amount from Client
+  # =============================================
+
+  - id: datahogo-client-controlled-price
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $PRICE = $REQ.body.price
+          - pattern: |
+              $AMOUNT = $REQ.body.amount
+          - pattern: |
+              $TOTAL = $REQ.body.total
+          - pattern: |
+              const { price: $PRICE, ... } = $REQ.body
+          - pattern: |
+              const { amount: $AMOUNT, ... } = $REQ.body
+    message: "Critical business logic flaw: Price or amount controlled by client input. Always calculate prices server-side based on product IDs."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 114
+      datahogo_category: "logic"
+      owasp_ref: "A04:2021"

@@ -1,0 +1,199 @@
+rules:
+  # =============================================
+  # AI / LLM Security (IDs 200-208)
+  # =============================================
+
+  - id: datahogo-ai-prompt-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $MESSAGES = `...${$USER_INPUT}...`
+          - pattern: |
+              $MESSAGES.push({..., content: `...${$INPUT}...`})
+          - pattern: |
+              $CLIENT.messages.create({..., messages: [{..., content: `...${$INPUT}...`}]})
+    message: >
+      User input is interpolated directly into an LLM prompt. This enables prompt injection attacks
+      where an attacker can manipulate the AI's behavior. Sanitize or use structured prompts with
+      system/user role separation.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 200
+      owasp: "A03:2021"
+      category: ai-llm
+
+  - id: datahogo-ai-api-key-frontend
+    patterns:
+      - pattern-either:
+          - pattern: process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY
+          - pattern: process.env.NEXT_PUBLIC_OPENAI_API_KEY
+          - pattern: process.env.NEXT_PUBLIC_AI_API_KEY
+          - pattern: process.env.NEXT_PUBLIC_CLAUDE_API_KEY
+    message: >
+      AI API key is exposed via NEXT_PUBLIC_ environment variable, making it accessible in the browser.
+      AI API keys must only be used server-side.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 203
+      owasp: "A07:2021"
+      category: ai-llm
+
+  - id: datahogo-ai-output-eval
+    patterns:
+      - pattern-either:
+          - pattern: eval($AI_RESPONSE)
+          - pattern: new Function($AI_RESPONSE)
+          - pattern: eval($COMPLETION.content)
+          - pattern: eval($RESPONSE.choices[0].message.content)
+    message: >
+      AI-generated output is passed to eval() or Function constructor. Never execute AI output as code —
+      it can be manipulated via prompt injection to run arbitrary code.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 208
+      owasp: "A03:2021"
+      category: ai-llm
+
+  - id: datahogo-ai-no-output-sanitization
+    patterns:
+      - pattern: |
+          dangerouslySetInnerHTML={{__html: $AI_OUTPUT}}
+      - metavariable-regex:
+          metavariable: $AI_OUTPUT
+          regex: ".*(completion|response|aiOutput|generated|llm|chat|gpt|claude).*"
+    message: >
+      AI-generated content is rendered as HTML without sanitization. AI outputs can contain XSS payloads
+      via prompt injection. Always sanitize with DOMPurify before rendering.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 204
+      category: ai-llm
+
+  # =============================================
+  # Database Connection Security (IDs 209-220)
+  # =============================================
+
+  - id: datahogo-db-connection-no-ssl
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new Pool({..., ssl: false})
+          - pattern: |
+              new Client({..., ssl: false})
+          - pattern: |
+              createConnection({..., ssl: false})
+    message: >
+      Database connection has SSL explicitly disabled. Always use SSL/TLS for database connections
+      to prevent credential and data interception.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 209
+      category: database-connection
+
+  - id: datahogo-db-ssl-reject-unauthorized-false
+    pattern: |
+      ssl: { rejectUnauthorized: false }
+    message: >
+      Database SSL certificate validation is disabled. This makes the connection vulnerable to
+      man-in-the-middle attacks. Use a proper CA certificate instead.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 219
+      category: database-connection
+
+  - id: datahogo-db-default-credentials
+    patterns:
+      - pattern-regex: "(?:postgres|mysql|mongodb)://(?:postgres|root|admin):(?:postgres|root|admin|password|secret|test)@"
+    message: >
+      Database connection string uses default credentials. Use strong, unique passwords
+      managed via environment variables or a secrets manager.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 211
+      category: database-connection
+
+  - id: datahogo-db-connection-string-logged
+    patterns:
+      - pattern-either:
+          - pattern: console.log(process.env.DATABASE_URL)
+          - pattern: console.log($X.connectionString)
+          - pattern: console.log(..., process.env.DATABASE_URL, ...)
+          - pattern: console.error(process.env.DATABASE_URL)
+    message: >
+      Database connection string (which may contain credentials) is logged. Remove logging of
+      connection strings to prevent credential exposure.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 218
+      category: database-connection
+
+  - id: datahogo-db-hardcoded-host
+    patterns:
+      - pattern-regex: "host:\\s*['\"]\\w+\\.(?:rds\\.amazonaws\\.com|database\\.azure\\.com|cloudsql\\.google\\.com)['\"]"
+    message: >
+      Database host is hardcoded to a cloud provider endpoint. Use environment variables
+      to allow different configurations per environment.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 220
+      category: database-connection
+
+  # =============================================
+  # Cloud Provider Security (IDs 221-232)
+  # =============================================
+
+  - id: datahogo-cloud-metadata-ssrf
+    patterns:
+      - pattern-either:
+          - pattern: fetch("http://169.254.169.254/...")
+          - pattern: fetch(`http://169.254.169.254/...`)
+          - pattern: axios.get("http://169.254.169.254/...")
+    message: >
+      Request to cloud metadata endpoint detected. If user input can influence this URL,
+      it enables SSRF attacks to steal cloud credentials. Block metadata IPs in your HTTP client.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 222
+      owasp: "A10:2021"
+      category: cloud
+
+  - id: datahogo-cloud-iam-star-star
+    patterns:
+      - pattern-regex: '"Action"\\s*:\\s*"\\*"[\\s\\S]{0,100}"Resource"\\s*:\\s*"\\*"'
+    message: >
+      IAM policy grants full access (Action: *, Resource: *). Follow least-privilege principle —
+      specify only the actions and resources needed.
+    severity: WARNING
+    languages: [json]
+    metadata:
+      datahogo_id: 224
+      category: cloud
+
+  - id: datahogo-cloud-s3-public
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new s3.Bucket({..., publicReadAccess: true})
+          - pattern: |
+              ACL: "public-read"
+          - pattern: |
+              ACL: "public-read-write"
+    message: >
+      S3 bucket configured with public access. Unless intentionally serving public static assets,
+      buckets should be private with CloudFront or presigned URLs for access.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 221
+      owasp: "A05:2021"
+      category: cloud

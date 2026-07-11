@@ -1,0 +1,169 @@
+rules:
+  # =============================================
+  # Database Connection Security — Advanced
+  # =============================================
+
+  - id: datahogo-db-no-pool-limit
+    patterns:
+      - pattern: |
+          new Pool({...})
+      - pattern-not: |
+          new Pool({..., max: $N, ...})
+    message: >
+      Database connection pool created without max connection limit. This can lead to pool exhaustion
+      under load. Set max to an appropriate value (e.g., 20 for web apps).
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 216
+      category: database-connection
+
+  - id: datahogo-db-no-timeout
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  new Pool({...})
+              - pattern-not: |
+                  new Pool({..., connectionTimeoutMillis: $N, ...})
+          - patterns:
+              - pattern: |
+                  new Client({...})
+              - pattern-not: |
+                  new Client({..., connectionTimeoutMillis: $N, ...})
+    message: >
+      Database connection created without timeout. Queries or connections that hang indefinitely
+      can exhaust resources. Set connectionTimeoutMillis and statement_timeout.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 217
+      category: database-connection
+
+  - id: datahogo-mongodb-no-auth
+    patterns:
+      - pattern-regex: "mongodb://[^:@]+(?::\\d+)?/"
+      - pattern-not-regex: "mongodb://[^:]+:[^@]+@"
+      - pattern-not-regex: "mongodb://localhost"
+      - pattern-not-regex: "mongodb://127\\.0\\.0\\.1"
+    message: >
+      MongoDB connection string does not include authentication credentials and connects to a
+      non-localhost host. Ensure MongoDB requires authentication in production.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 213
+      category: database-connection
+
+  - id: datahogo-redis-no-auth
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  new Redis({...})
+              - pattern-not: |
+                  new Redis({..., password: $P, ...})
+          - patterns:
+              - pattern: |
+                  createClient({...})
+              - pattern-not: |
+                  createClient({..., password: $P, ...})
+    message: >
+      Redis client created without password authentication. Redis should always require a password,
+      especially when accessible over a network.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 214
+      category: database-connection
+
+  # =============================================
+  # Cloud Storage & Services
+  # =============================================
+
+  - id: datahogo-s3-no-encryption
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  new s3.Bucket({...})
+              - pattern-not: |
+                  new s3.Bucket({..., encryption: $E, ...})
+          - pattern: |
+              ServerSideEncryptionConfiguration: []
+    message: >
+      S3 bucket created without server-side encryption. Enable AES-256 or KMS encryption
+      to protect data at rest.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 227
+      category: cloud
+
+  - id: datahogo-cloud-function-no-auth
+    patterns:
+      - pattern-either:
+          - pattern: |
+              --allow-unauthenticated
+          - pattern: |
+              authorizationType: "NONE"
+          - pattern: |
+              FunctionUrlAuthType.NONE
+    message: >
+      Cloud function configured without authentication. This exposes the function publicly.
+      Use IAM authentication or API Gateway with auth for production functions.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 226
+      category: cloud
+
+  # =============================================
+  # CI/CD Pipeline Security
+  # =============================================
+
+  - id: datahogo-gha-unpinned-action
+    pattern-regex: "uses:\\s+[\\w-]+/[\\w-]+@(?:main|master|latest|v\\d+)\\s*$"
+    message: >
+      GitHub Action uses an unpinned version (branch name or major version tag).
+      Pin to a full SHA to prevent supply chain attacks.
+    severity: WARNING
+    languages: [generic]
+    paths:
+      include:
+        - ".github/workflows/*.yml"
+        - ".github/workflows/*.yaml"
+    metadata:
+      datahogo_id: 241
+      category: cicd
+
+  - id: datahogo-gha-script-injection
+    pattern-regex: "run:.*\\$\\{\\{\\s*github\\.event\\.(?:issue|pull_request|comment|review|discussion)\\.(?:title|body|head\\.ref)"
+    message: >
+      GitHub Actions workflow injects untrusted event data directly into a shell command.
+      This enables arbitrary code execution. Use an intermediate environment variable instead.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - ".github/workflows/*.yml"
+        - ".github/workflows/*.yaml"
+    metadata:
+      datahogo_id: 242
+      owasp: "A03:2021"
+      category: cicd
+
+  - id: datahogo-gha-permissions-too-broad
+    pattern-regex: "permissions:\\s*write-all"
+    message: >
+      Workflow uses write-all permissions. Follow least-privilege — specify only needed permissions
+      (e.g., contents: read, pull-requests: write).
+    severity: WARNING
+    languages: [generic]
+    paths:
+      include:
+        - ".github/workflows/*.yml"
+        - ".github/workflows/*.yaml"
+    metadata:
+      datahogo_id: 245
+      category: cicd

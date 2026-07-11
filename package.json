@@ -1,0 +1,12 @@
+{
+  "name": "datahogo-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @datahogo/core && npm run build -w datahogo",
+    "test": "npm run test --workspaces"
+  }
+}

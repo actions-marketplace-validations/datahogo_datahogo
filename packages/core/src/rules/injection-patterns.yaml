@@ -1,0 +1,318 @@
+rules:
+  # ID 71: LDAP Injection
+  - id: datahogo-ldap-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.search($BASE, { filter: `...(${$INPUT})...` }, ...)
+          - pattern: |
+              $CLIENT.search($BASE, { filter: `...(${$REQ.body.$FIELD})...` }, ...)
+          - pattern: |
+              const filter = `(&(uid=${$USERNAME})(...))`
+          - pattern: |
+              ldap.$METHOD($DN, `...${$VAR}...`, ...)
+      - pattern-not: |
+          const filter = `(&(uid=${escapeLDAP($USERNAME)})(...))`
+      - pattern-not: |
+          ldapEscape.filter($VAR)
+    message: "LDAP query built with unsanitized user input - use ldap-escape or equivalent sanitization"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 71
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  # ID 72: XXE - XML External Entity
+  - id: datahogo-xxe-libxml
+    patterns:
+      - pattern-either:
+          - pattern: libxmljs.parseXml($INPUT)
+          - pattern: libxmljs.parseXmlString($INPUT)
+          - pattern: libxmljs.parseXml($INPUT, { noent: true })
+    message: "libxmljs XML parsing may allow XXE - disable external entities via options"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 72
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-xxe-xml2js
+    patterns:
+      - pattern: xml2js.parseString($INPUT, ...)
+      - pattern-not: xml2js.parseString($INPUT, { explicitCharkey: ..., ignoreAttrs: ... })
+    message: "xml2js parsing with untrusted input may allow XXE or billion-laughs attacks"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 72
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-xxe-domparser
+    pattern: |
+      new DOMParser().parseFromString($INPUT, ...)
+    message: "DOMParser with untrusted XML input may allow XXE - validate and sanitize input"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 72
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  # ID 73: Header Injection (CRLF)
+  - id: datahogo-header-injection-crlf
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESPONSE.setHeader($HEADER_NAME, $REQ.body.$FIELD)
+          - pattern: |
+              $RESPONSE.setHeader($HEADER_NAME, $REQ.query.$PARAM)
+          - pattern: |
+              new Headers({ $KEY: $REQ.query.$PARAM })
+      - pattern-not: |
+          $RESPONSE.setHeader($HEADER_NAME, $VAR.replace(/[\r\n]/g, ''))
+      - pattern-not: |
+          sanitizeHeader($VALUE)
+    message: "HTTP header set with user-controlled value - strip CRLF (\\r\\n) to prevent header injection"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 73
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  # ID 74: Email Header Injection
+  - id: datahogo-email-header-injection-to
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $MAILER.sendMail({ to: $REQ.body.email, ... })
+          - pattern: |
+              $MAILER.sendMail({ from: $REQ.body.from, ... })
+          - pattern: |
+              $MAILER.sendMail({ subject: `...${ $REQ.body.subject }...`, ... })
+    message: "Email headers built from user input - sanitize To/From/Subject fields to prevent email header injection"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 74
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-email-header-injection-resend
+    patterns:
+      - pattern-either:
+          - pattern: |
+              resend.emails.send({ to: $REQ.body.$FIELD, ... })
+          - pattern: |
+              resend.emails.send({ from: $REQ.body.$FIELD, ... })
+          - pattern: |
+              resend.emails.send({ subject: `...${ $REQ.body.$FIELD }...`, ... })
+    message: "Resend email fields built from user input - validate email addresses and sanitize subject lines"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 74
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  # ID 75: Log Injection
+  - id: datahogo-log-injection-console
+    patterns:
+      - pattern-either:
+          - pattern: console.log(`...${ $REQ.body.$FIELD }...`)
+          - pattern: console.log(`...${ $REQ.query.$PARAM }...`)
+          - pattern: console.log(`...${ $REQ.params.$PARAM }...`)
+          - pattern: console.error(`...${ $REQ.body.$FIELD }...`)
+          - pattern: console.warn(`...${ $REQ.body.$FIELD }...`)
+    message: "User-controlled input in log statements enables log injection/forging - sanitize before logging"
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 75
+      datahogo_category: "injection"
+      owasp_ref: "A09:2021"
+
+  - id: datahogo-log-injection-structured
+    patterns:
+      - pattern-either:
+          - pattern: logger.info(`...${ $REQ.body.$FIELD }...`)
+          - pattern: logger.error(`...${ $REQ.body.$FIELD }...`)
+          - pattern: winston.log($LEVEL, `...${ $REQ.body.$FIELD }...`)
+          - pattern: pino().info(`...${ $REQ.body.$FIELD }...`)
+    message: "User input in log messages enables log injection - pass as structured field instead of string interpolation"
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 75
+      datahogo_category: "injection"
+      owasp_ref: "A09:2021"
+
+  # ID 76: Template Injection (SSTI)
+  - id: datahogo-template-injection-ejs
+    patterns:
+      - pattern-either:
+          - pattern: ejs.render($REQ.body.$TEMPLATE, ...)
+          - pattern: ejs.render($REQ.query.$PARAM, ...)
+          - pattern: ejs.renderFile($REQ.body.$PATH, ...)
+    message: "EJS rendering with user-controlled template enables Server-Side Template Injection (SSTI)"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 76
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-template-injection-handlebars
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const template = Handlebars.compile($REQ.body.$FIELD)
+          - pattern: |
+              const template = Handlebars.compile($REQ.query.$PARAM)
+    message: "Handlebars compiling user-controlled templates enables SSTI - only compile static templates"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 76
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-template-injection-pug
+    patterns:
+      - pattern-either:
+          - pattern: pug.render($REQ.body.$FIELD, ...)
+          - pattern: pug.compile($REQ.body.$FIELD, ...)
+    message: "Pug rendering with user-controlled template content enables SSTI"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 76
+      datahogo_category: "injection"
+      owasp_ref: "A03:2021"
+
+  # ID 104: Unsafe deserialization
+  - id: datahogo-unsafe-deserialize-node-serialize
+    patterns:
+      - pattern-either:
+          - pattern: serialize.unserialize($INPUT)
+          - pattern: nodeSerialize.unserialize($INPUT)
+    message: "node-serialize unserialize() is unsafe with untrusted input and allows Remote Code Execution"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 104
+      datahogo_category: "injection"
+      owasp_ref: "A08:2021"
+
+  - id: datahogo-unsafe-yaml-load
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($INPUT)
+          - pattern: jsYaml.load($INPUT)
+          - pattern: require("js-yaml").load($INPUT)
+    message: "yaml.load() with untrusted input can execute arbitrary code. Use yaml.safeLoad() or yaml.load() with schema: CORE_SCHEMA"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 104
+      datahogo_category: "injection"
+      owasp_ref: "A08:2021"
+
+  # ID 106: Path traversal
+  - id: datahogo-path-traversal-readfile
+    patterns:
+      - pattern-either:
+          - pattern: |
+              fs.readFile(`${__dirname}/${$REQ.query.$PARAM}`, ...)
+          - pattern: |
+              fs.readFile(`${$BASE_PATH}/${$REQ.body.$FIELD}`, ...)
+          - pattern: |
+              fs.readFileSync(`${$DIR}/${$REQ.params.$PARAM}`)
+          - pattern: |
+              path.join($BASE_DIR, $REQ.query.$PARAM)
+      - pattern-not: |
+          path.join($BASE_DIR, path.basename($VAR))
+      - pattern-not: |
+          $PATH.includes('..')
+    message: "File path built with user input - use path.basename() and validate to prevent path traversal"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 106
+      datahogo_category: "files-media"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-path-traversal-send
+    patterns:
+      - pattern-either:
+          - pattern: |
+              res.sendFile(`${__dirname}/${$REQ.params.$PARAM}`)
+          - pattern: |
+              res.sendFile(path.join($DIR, $REQ.query.$PARAM))
+    message: "Dynamic file serving with user-controlled path - validate against allowed file list"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 106
+      datahogo_category: "files-media"
+      owasp_ref: "A01:2021"
+
+  # ID 111: Zip Slip
+  - id: datahogo-zip-slip
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $ENTRY.extract($DEST_PATH)
+          - pattern: |
+              fs.writeFile(`${$OUTPUT_DIR}/${$ENTRY.fileName}`, ...)
+          - pattern: |
+              const targetPath = path.join($OUTPUT, $ENTRY.entryName)
+      - pattern-not: |
+          if (!targetPath.startsWith($OUTPUT))
+      - pattern-not: |
+          if (targetPath.includes('..'))
+    message: "ZIP extraction without path validation allows Zip Slip - verify extracted path is within target directory"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 111
+      datahogo_category: "files-media"
+      owasp_ref: "A01:2021"
+
+  # ID 110: PDF generation injection
+  - id: datahogo-pdf-html-injection-puppeteer
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $PAGE.setContent(`...${ $REQ.body.$FIELD }...`)
+          - pattern: |
+              $PAGE.setContent(`...${ $INPUT }...`)
+      - pattern-not: |
+          DOMPurify.sanitize($INPUT)
+      - pattern-not: |
+          sanitizeHtml($INPUT)
+    message: "User-controlled HTML in PDF generation (Puppeteer) allows script injection - sanitize HTML before passing to setContent()"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 110
+      datahogo_category: "files-media"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-pdf-html-injection-pdfkit
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DOC.text($REQ.body.$FIELD, ...)
+          - pattern: |
+              $PDF.text(`...${ $REQ.body.$FIELD }...`)
+    message: "User-controlled content passed directly to PDF generator - sanitize to prevent content injection"
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 110
+      datahogo_category: "files-media"
+      owasp_ref: "A03:2021"

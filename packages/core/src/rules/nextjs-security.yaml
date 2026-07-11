@@ -1,0 +1,532 @@
+rules:
+  # ============================================================
+  # React / Next.js Security Rules
+  # ============================================================
+
+  - id: datahogo-dangerous-inner-html
+    pattern: dangerouslySetInnerHTML={{ __html: $VAR }}
+    message: "dangerouslySetInnerHTML can lead to XSS if input is not sanitized with DOMPurify. Always sanitize user input before rendering HTML."
+    severity: WARNING
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 46
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-tokens-in-localstorage
+    patterns:
+      - pattern: localStorage.setItem($KEY, $VALUE)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i)(token|jwt|auth|session|access_token|refresh_token|api_key)
+    message: "Storing authentication tokens in localStorage is insecure. Use httpOnly cookies or secure session management instead."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 47
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A07:2021"
+
+  - id: datahogo-next-data-secrets
+    patterns:
+      - pattern: |
+          export async function getServerSideProps(...) {
+            ...
+            return {
+              props: { ...$PROPS... }
+            }
+          }
+      - metavariable-regex:
+          metavariable: $PROPS
+          regex: (?i)(api_key|secret|password|private_key|token|credentials)
+    message: "Sensitive data in getServerSideProps props will be serialized to __NEXT_DATA__ and exposed in the HTML. Never pass secrets to client components."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 48
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-open-cors-api
+    patterns:
+      - pattern-either:
+          - pattern: headers.set("Access-Control-Allow-Origin", "*")
+          - pattern: headers.append("Access-Control-Allow-Origin", "*")
+          - pattern: res.setHeader("Access-Control-Allow-Origin", "*")
+      - pattern-inside: |
+          export async function $METHOD(...) {
+            ...
+          }
+    message: "Open CORS policy (Access-Control-Allow-Origin: *) allows any origin to access your API. Restrict to specific trusted domains."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 50
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A05:2021"
+
+  - id: datahogo-no-csrf-server-action
+    patterns:
+      - pattern: |
+          "use server";
+          export async function $ACTION(...) {
+            ...
+          }
+      - pattern-not: |
+          "use server";
+          export async function $ACTION(...) {
+            ...
+            verifyRequestOrigin(...)
+            ...
+          }
+      - pattern-not: |
+          "use server";
+          export async function $ACTION(...) {
+            ...
+            csrf(...)
+            ...
+          }
+    message: "Server Actions should verify request origin to prevent CSRF attacks. Add origin validation or CSRF token checks."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 51
+      datahogo_category: "react-nextjs"
+
+  - id: datahogo-nextjs-middleware-bypass
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export const config = {
+                matcher: [..., $PATTERN, ...]
+              }
+          - pattern: |
+              export const config = {
+                matcher: $PATTERN
+              }
+      - metavariable-regex:
+          metavariable: $PATTERN
+          regex: ^(?!.*_next).*$
+    message: "Middleware matcher may be vulnerable to bypass. Ensure paths starting with /_next are excluded to prevent CVE-2025-29927."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 52
+      datahogo_category: "react-nextjs"
+
+  - id: datahogo-auth-frontend-only
+    patterns:
+      - pattern: |
+          "use client";
+          ...
+      - pattern-either:
+          - pattern: if ($USER.role === "admin") { ... }
+          - pattern: if ($USER.isAdmin) { ... }
+          - pattern: if ($SESSION.user.role === $ROLE) { ... }
+          - pattern: |
+              $USER.role === $ROLE ? ... : ...
+    message: "Auth checks in client components can be bypassed. Always verify permissions on the server (API routes, Server Components)."
+    severity: WARNING
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 57
+      datahogo_category: "vibecoding"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-api-no-auth-check
+    patterns:
+      - pattern: |
+          export async function $METHOD(req: Request) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: (GET|POST|PUT|PATCH|DELETE)
+      - pattern-not: |
+          export async function $METHOD(req: Request) {
+            ...
+            $CLIENT.auth.getUser()
+            ...
+          }
+      - pattern-not: |
+          export async function $METHOD(req: Request) {
+            ...
+            getUser()
+            ...
+          }
+      - pattern-not: |
+          export async function $METHOD(req: Request) {
+            ...
+            getSession()
+            ...
+          }
+      - pattern-not: |
+          export async function $METHOD(req: Request) {
+            ...
+            verifyAuth()
+            ...
+          }
+    message: "API route handler is missing authentication check. Always verify user session before processing requests."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 58
+      datahogo_category: "vibecoding"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-dom-xss-document-write
+    patterns:
+      - pattern-either:
+          - pattern: document.write($VAR)
+          - pattern: $ELEM.innerHTML = $VAR
+      - pattern-either:
+          - pattern-regex: location
+          - pattern-regex: document\.URL
+          - pattern-regex: window\.name
+          - pattern-regex: document\.referrer
+    message: "DOM-based XSS vulnerability. Using document.write or innerHTML with untrusted input (location, URL, etc.) allows script injection."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 86
+      datahogo_category: "frontend"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-stored-xss-no-sanitize
+    patterns:
+      - pattern-either:
+          - pattern: dangerouslySetInnerHTML={{ __html: $USER_DATA }}
+          - pattern: $ELEM.innerHTML = $USER_DATA
+      - pattern-not: dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(...) }}
+      - pattern-not: $ELEM.innerHTML = DOMPurify.sanitize(...)
+    message: "Stored XSS risk. User-generated content rendered without sanitization. Use DOMPurify or avoid innerHTML entirely."
+    severity: WARNING
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 87
+      datahogo_category: "frontend"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-postmessage-no-origin
+    patterns:
+      - pattern: |
+          window.addEventListener("message", $HANDLER)
+      - pattern-not: |
+          window.addEventListener("message", ($EVENT) => {
+            ...
+            $EVENT.origin
+            ...
+          })
+      - pattern-not: |
+          window.addEventListener("message", function($EVENT) {
+            ...
+            $EVENT.origin
+            ...
+          })
+    message: "postMessage listener missing origin verification. Always check event.origin to prevent XSS from untrusted domains."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 88
+      datahogo_category: "frontend"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-no-x-frame-options
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export async function $METHOD(...) {
+                ...
+                return new Response(...)
+              }
+          - pattern: |
+              export async function middleware(...) {
+                ...
+                return NextResponse.next()
+              }
+      - pattern-not: |
+          $HEADERS.set("X-Frame-Options", ...)
+      - pattern-not: |
+          $HEADERS.append("X-Frame-Options", ...)
+    message: "Missing X-Frame-Options header allows clickjacking attacks. Set to DENY or SAMEORIGIN in middleware or API responses."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 89
+      datahogo_category: "frontend"
+
+  - id: datahogo-iframe-no-sandbox
+    pattern-regex: <iframe(?:(?!sandbox)[^>])*src=
+    message: "Iframe without sandbox attribute can execute scripts and access parent window. Add sandbox='allow-scripts allow-same-origin' with minimal permissions."
+    severity: WARNING
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 90
+      datahogo_category: "frontend"
+
+  - id: datahogo-cdn-no-integrity
+    patterns:
+      - pattern-either:
+          - pattern-regex: <script\s+src=["']https?://(?:cdn|cdnjs|unpkg|jsdelivr)
+          - pattern-regex: <link\s+(?:[^>]*\s+)?href=["']https?://(?:cdn|cdnjs|unpkg|jsdelivr)
+      - pattern-not-regex: integrity=["']sha
+    message: "CDN resource loaded without Subresource Integrity (SRI). Add integrity attribute to prevent tampering."
+    severity: INFO
+    languages: [typescript, javascript, tsx, jsx, html]
+    metadata:
+      datahogo_id: 91
+      datahogo_category: "frontend"
+
+  - id: datahogo-client-redirect-unsafe
+    patterns:
+      - pattern-either:
+          - pattern: window.location = $URL
+          - pattern: window.location.href = $URL
+          - pattern: location.href = $URL
+          - pattern: router.push($URL)
+      - pattern-either:
+          - pattern: window.location = $PARAMS.get(...)
+          - pattern: window.location.href = searchParams.get(...)
+          - pattern: router.push(req.query.$PARAM)
+    message: "Client-side redirect with unvalidated user input enables open redirect attacks. Validate URL against whitelist before redirecting."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 92
+      datahogo_category: "frontend"
+      owasp_ref: "A01:2021"
+
+  - id: datahogo-sensitive-data-in-url
+    patterns:
+      - pattern-either:
+          - pattern: router.push(`/...?token=${$TOKEN}`)
+          - pattern: window.location = `...?password=${$PWD}`
+          - pattern: redirect(`...?api_key=${$KEY}`)
+      - metavariable-regex:
+          metavariable: $TOKEN
+          regex: (?i)(token|password|secret|api_key|private_key|credentials)
+    message: "Sensitive data in URL query parameters will be logged in browser history and server logs. Use POST body or secure headers instead."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 93
+      datahogo_category: "frontend"
+      owasp_ref: "A04:2021"
+
+  - id: datahogo-no-error-boundary
+    patterns:
+      - pattern: |
+          export default function $LAYOUT({ children }: { children: React.ReactNode }) {
+            return (
+              ...
+              {children}
+              ...
+            )
+          }
+      - pattern-not: |
+          export default function $LAYOUT({ children }: { children: React.ReactNode }) {
+            return (
+              ...
+              <ErrorBoundary>
+                {children}
+              </ErrorBoundary>
+              ...
+            )
+          }
+      - pattern-inside: |
+          ...
+          app/$ROUTE/layout.tsx
+    message: "No React Error Boundary in layout. Unhandled errors can expose stack traces to users. Wrap children in ErrorBoundary component."
+    severity: INFO
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 174
+      datahogo_category: "best-practices"
+
+  # ============================================================
+  # Additional Next.js Specific Patterns
+  # ============================================================
+
+  - id: datahogo-next-env-client-exposed
+    patterns:
+      - pattern-either:
+          - pattern: process.env.$VAR
+          - pattern: env.$VAR
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: ^(?!NEXT_PUBLIC_).*(?i)(secret|key|password|private|token|credential).*$
+      - pattern-inside: |
+          "use client";
+          ...
+    message: "Server-side environment variable accessed in client component. Only NEXT_PUBLIC_* vars are available in the browser. This will be undefined."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 134
+      datahogo_category: "serverless"
+
+  - id: datahogo-next-image-unoptimized
+    patterns:
+      - pattern: <img src={$SRC} ... />
+      - pattern-not: <Image src={$SRC} ... />
+      - pattern-inside: |
+          export default function $COMPONENT(...) {
+            ...
+          }
+    message: "Using native <img> tag instead of Next.js <Image>. This bypasses automatic optimization, lazy loading, and responsive images."
+    severity: INFO
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 165
+      datahogo_category: "best-practices"
+
+  - id: datahogo-use-client-entire-route
+    patterns:
+      - pattern: |
+          "use client";
+          ...
+          export default function Page() {
+            ...
+          }
+      - pattern-not: |
+          "use client";
+          ...
+          export default function Page() {
+            ...
+            useState(...)
+            ...
+          }
+      - pattern-not: |
+          "use client";
+          ...
+          export default function Page() {
+            ...
+            useEffect(...)
+            ...
+          }
+      - pattern-not: |
+          "use client";
+          ...
+          export default function Page() {
+            ...
+            onClick=...
+            ...
+          }
+    message: "Entire page marked as 'use client' without obvious client-side features. Consider using Server Components for better performance."
+    severity: INFO
+    languages: [typescript, javascript, tsx, jsx]
+    metadata:
+      datahogo_id: 171
+      datahogo_category: "best-practices"
+
+  - id: datahogo-revalidate-with-cache-no-store
+    patterns:
+      - pattern: |
+          fetch($URL, {
+            ...
+            cache: "no-store",
+            ...
+            next: { revalidate: $TIME }
+            ...
+          })
+    message: "Using cache: 'no-store' with revalidate is contradictory. Remove cache option or use cache: 'force-cache' with revalidate."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 171
+      datahogo_category: "best-practices"
+
+  - id: datahogo-server-action-no-revalidate
+    patterns:
+      - pattern: |
+          "use server";
+          export async function $ACTION(...) {
+            ...
+            $DB.insert(...)
+            ...
+          }
+      - pattern-not: |
+          "use server";
+          export async function $ACTION(...) {
+            ...
+            revalidatePath(...)
+            ...
+          }
+      - pattern-not: |
+          "use server";
+          export async function $ACTION(...) {
+            ...
+            revalidateTag(...)
+            ...
+          }
+    message: "Server Action modifies data without revalidating cache. Call revalidatePath() or revalidateTag() to update stale data."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 171
+      datahogo_category: "best-practices"
+
+  - id: datahogo-dynamic-force-dynamic-missing
+    patterns:
+      - pattern: |
+          export async function $METHOD(request: Request) {
+            ...
+            $PARAMS.get(...)
+            ...
+          }
+      - pattern-not: |
+          export const dynamic = "force-dynamic"
+          ...
+          export async function $METHOD(request: Request) {
+            ...
+          }
+      - pattern-not: |
+          export const revalidate = 0
+          ...
+          export async function $METHOD(request: Request) {
+            ...
+          }
+    message: "Route uses dynamic request data (searchParams, cookies, headers) but doesn't set 'export const dynamic = force-dynamic'. May serve stale cached data."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 171
+      datahogo_category: "best-practices"
+
+  - id: datahogo-console-log-in-production
+    patterns:
+      - pattern-either:
+          - pattern: console.log(...)
+          - pattern: console.info(...)
+          - pattern: console.warn(...)
+      - pattern-inside: |
+          export async function $METHOD(...) {
+            ...
+          }
+    message: "console.log in production code can leak sensitive data and impacts performance. Use structured logging (Sentry, Winston) instead."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 172
+      datahogo_category: "best-practices"
+
+  - id: datahogo-api-route-throws-without-try
+    patterns:
+      - pattern: |
+          export async function $METHOD(...) {
+            ...
+          }
+      - pattern-not: |
+          export async function $METHOD(...) {
+            try {
+              ...
+            } catch (...) {
+              ...
+            }
+          }
+    message: "API route without try-catch. Unhandled errors will expose stack traces to clients. Wrap in try-catch and return user-friendly errors."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 173
+      datahogo_category: "best-practices"

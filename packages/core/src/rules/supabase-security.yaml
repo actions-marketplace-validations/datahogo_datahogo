@@ -1,0 +1,387 @@
+rules:
+  # =============================================================================
+  # SUPABASE SECURITY RULES
+  # =============================================================================
+
+  # ID 34: Service Role Key Exposed in client code
+  - id: datahogo-supabase-service-role-client
+    patterns:
+      - pattern: createClient($URL, $KEY)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: ".*service_role.*|.*SERVICE_ROLE.*|.*service-role.*"
+    message: "Service role key detected in client-side code. Service role keys bypass Row Level Security and should only be used in server-side code with explicit security checks."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 34
+      datahogo_category: "supabase"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-798"
+
+  # ID 34: Service Role Key in environment variable access (client-side)
+  - id: datahogo-supabase-service-role-env-client
+    patterns:
+      - pattern-either:
+          - pattern: process.env.SUPABASE_SERVICE_ROLE_KEY
+          - pattern: process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
+          - pattern: import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+    message: "Service role key accessed via environment variable in client code. This key should never be exposed to the client and must only be used server-side."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 34
+      datahogo_category: "supabase"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-798"
+
+  # ID 31: RLS disabled - createClient without proper context
+  - id: datahogo-supabase-no-auth-context
+    patterns:
+      - pattern: createClient($URL, $KEY, { auth: { persistSession: false } })
+      - pattern-not: createClient($URL, $KEY, { auth: { ..., autoRefreshToken: $AUTO } })
+    message: "Supabase client created without proper auth context. Ensure Row Level Security (RLS) is enabled on all tables and auth context is properly configured."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 31
+      datahogo_category: "supabase"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-284"
+
+  # ID 36: RPC Functions without auth check
+  - id: datahogo-supabase-rpc-no-auth
+    patterns:
+      - pattern: |
+          $SUPABASE.rpc($FUNC, $PARAMS)
+      - pattern-not-inside: |
+          const { data: { user } } = await $SUPABASE.auth.getUser()
+          ...
+      - pattern-not-inside: |
+          if (!$USER) { ... }
+          ...
+    message: "Supabase RPC call without auth verification. Always check user authentication before calling RPC functions that perform sensitive operations."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 36
+      datahogo_category: "supabase"
+      owasp_ref: "A07:2021 - Identification and Authentication Failures"
+      cwe: "CWE-306"
+
+  # ID 54: No input validation on Supabase queries
+  - id: datahogo-supabase-no-input-validation
+    patterns:
+      - pattern-either:
+          - pattern: $SUPABASE.from($TABLE).select().eq($FIELD, $REQ.body.$PARAM)
+          - pattern: $SUPABASE.from($TABLE).select().eq($FIELD, $REQ.query.$PARAM)
+          - pattern: $SUPABASE.from($TABLE).select().eq($FIELD, $REQ.params.$PARAM)
+          - pattern: $SUPABASE.from($TABLE).insert({ ...$REQ.body })
+          - pattern: $SUPABASE.from($TABLE).update({ ...$REQ.body })
+      - pattern-not-inside: |
+          const $VALIDATED = $SCHEMA.parse($REQ.body)
+          ...
+      - pattern-not-inside: |
+          if (!$VALIDATION) { ... }
+          ...
+    message: "Direct user input used in Supabase query without validation. Always validate input with Zod or similar schema validation before using in database queries."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 54
+      datahogo_category: "supabase"
+      owasp_ref: "A03:2021 - Injection"
+      cwe: "CWE-20"
+
+  # ID 98: Excessive data exposure (select * from Supabase)
+  - id: datahogo-supabase-select-all
+    patterns:
+      - pattern-either:
+          - pattern: $SUPABASE.from($TABLE).select("*")
+          - pattern: $SUPABASE.from($TABLE).select()
+      - pattern-not-inside: |
+          async function $FUNC(...$ARGS): Promise<$TYPE> {
+            ...
+          }
+      - pattern-inside: |
+          export async function $HANDLER($REQ, ...$ARGS) {
+            ...
+          }
+    message: "Selecting all columns from Supabase table in API handler. Return only the fields needed to minimize data exposure and improve performance."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 98
+      datahogo_category: "supabase"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-359"
+
+  # ID 99: Missing pagination on Supabase queries
+  - id: datahogo-supabase-no-pagination
+    patterns:
+      - pattern: $SUPABASE.from($TABLE).select($FIELDS)
+      - pattern-not: $SUPABASE.from($TABLE).select($FIELDS).limit($N)
+      - pattern-not: $SUPABASE.from($TABLE).select($FIELDS).range($START, $END)
+      - pattern-not: $SUPABASE.from($TABLE).select($FIELDS).single()
+      - pattern-not: $SUPABASE.from($TABLE).select($FIELDS).maybeSingle()
+    message: "Supabase query without pagination or limit. Add .limit(), .range(), or .single() to prevent excessive data retrieval and potential DoS."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 99
+      datahogo_category: "supabase"
+      owasp_ref: "A04:2021 - Insecure Design"
+      cwe: "CWE-400"
+
+  # ID 103: Raw queries in Supabase
+  - id: datahogo-supabase-raw-query
+    patterns:
+      - pattern-either:
+          - pattern: $SUPABASE.rpc($FUNC, { query: $SQL })
+          - pattern: $SUPABASE.rpc($FUNC, { sql: $SQL })
+      - metavariable-pattern:
+          metavariable: $SQL
+          patterns:
+            - pattern-either:
+                - pattern: |
+                    `$...${$VAR}$...`
+                - pattern: |
+                    "$..." + $VAR + "$..."
+    message: "Raw SQL query with string interpolation detected in Supabase RPC. Use parameterized queries to prevent SQL injection."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 103
+      datahogo_category: "supabase"
+      owasp_ref: "A03:2021 - Injection"
+      cwe: "CWE-89"
+
+  # ID 120: Mass assignment - req.body direct to update
+  - id: datahogo-supabase-mass-assignment
+    patterns:
+      - pattern-either:
+          - pattern: $SUPABASE.from($TABLE).update($REQ.body)
+          - pattern: $SUPABASE.from($TABLE).update({ ...$REQ.body })
+          - pattern: $SUPABASE.from($TABLE).insert($REQ.body)
+          - pattern: $SUPABASE.from($TABLE).insert({ ...$REQ.body })
+          - pattern: $SUPABASE.from($TABLE).upsert($REQ.body)
+          - pattern: $SUPABASE.from($TABLE).upsert({ ...$REQ.body })
+      - pattern-not-inside: |
+          const { $FIELD1, $FIELD2, ...$REST } = $REQ.body
+          ...
+    message: "Mass assignment vulnerability: request body passed directly to Supabase update/insert. Explicitly whitelist allowed fields to prevent privilege escalation."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 120
+      datahogo_category: "supabase"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-915"
+
+  # ID 34: Hardcoded Supabase key
+  - id: datahogo-supabase-hardcoded-key
+    patterns:
+      - pattern: createClient($URL, "$KEY")
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: "^eyJ[a-zA-Z0-9_-]{30,}\\.[a-zA-Z0-9_-]{10,}"
+    message: "Hardcoded Supabase key detected. Keys should be loaded from environment variables to avoid exposure in source code."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 34
+      datahogo_category: "supabase"
+      owasp_ref: "A02:2021 - Cryptographic Failures"
+      cwe: "CWE-798"
+
+  # =============================================================================
+  # FIREBASE SECURITY RULES
+  # =============================================================================
+
+  # ID 43: Firebase API Key in code
+  - id: datahogo-firebase-api-key-hardcoded
+    patterns:
+      - pattern: |
+          {
+            apiKey: "$KEY",
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: "^AIza[a-zA-Z0-9_-]{35}$"
+    message: "Firebase API key hardcoded in source code. Use environment variables to avoid exposure in client bundle."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 43
+      datahogo_category: "firebase"
+      owasp_ref: "A02:2021 - Cryptographic Failures"
+      cwe: "CWE-798"
+
+  # ID 44: Firebase Auth without restrictions
+  - id: datahogo-firebase-auth-no-email-verification
+    patterns:
+      - pattern: |
+          createUserWithEmailAndPassword($AUTH, $EMAIL, $PASSWORD)
+      - pattern-not-inside: |
+          const $USER = await createUserWithEmailAndPassword($AUTH, $EMAIL, $PASSWORD)
+          await sendEmailVerification($USER.user)
+          ...
+    message: "Firebase user creation without email verification. Implement email verification to prevent fake account creation and ensure user authenticity."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 44
+      datahogo_category: "firebase"
+      owasp_ref: "A07:2021 - Identification and Authentication Failures"
+      cwe: "CWE-306"
+
+  # ID 45: Cloud Functions without validation
+  - id: datahogo-firebase-function-no-auth
+    patterns:
+      - pattern: |
+          export const $FUNC = onRequest(async ($REQ, $RES) => {
+            ...
+          })
+      - pattern-not-inside: |
+          export const $FUNC = onRequest(async ($REQ, $RES) => {
+            const $TOKEN = $REQ.headers.authorization
+            ...
+          })
+      - pattern-not-inside: |
+          export const $FUNC = onRequest(async ($REQ, $RES) => {
+            if (!$REQ.auth) { ... }
+            ...
+          })
+    message: "Firebase Cloud Function without authentication check. Always verify user authentication before processing sensitive operations."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 45
+      datahogo_category: "firebase"
+      owasp_ref: "A07:2021 - Identification and Authentication Failures"
+      cwe: "CWE-306"
+
+  # ID 45: Cloud Functions without input validation
+  - id: datahogo-firebase-function-no-validation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export const $FUNC = onCall(async ($DATA, $CONTEXT) => {
+                ...
+                $DB.collection($COLL).doc($DATA.$FIELD)
+                ...
+              })
+          - pattern: |
+              export const $FUNC = onRequest(async ($REQ, $RES) => {
+                ...
+                $DB.collection($COLL).doc($REQ.body.$FIELD)
+                ...
+              })
+      - pattern-not-inside: |
+          const $VALIDATED = $SCHEMA.parse($DATA)
+          ...
+      - pattern-not-inside: |
+          if (typeof $DATA.$FIELD !== "$TYPE") { ... }
+          ...
+    message: "Firebase Cloud Function using request data without validation. Validate all input with schema validation or type checking before use."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 45
+      datahogo_category: "firebase"
+      owasp_ref: "A03:2021 - Injection"
+      cwe: "CWE-20"
+
+  # ID 98: Excessive data exposure in Firestore
+  - id: datahogo-firestore-get-all-docs
+    patterns:
+      - pattern: $DB.collection($COLL).get()
+      - pattern-not: $DB.collection($COLL).limit($N).get()
+      - pattern-not: $DB.collection($COLL).where($FIELD, $OP, $VAL).get()
+    message: "Firestore query without filtering or pagination. This can expose excessive data and impact performance. Add .where() or .limit() clauses."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 98
+      datahogo_category: "firebase"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-359"
+
+  # ID 54: No input validation on Firestore writes
+  - id: datahogo-firestore-no-input-validation
+    patterns:
+      - pattern-either:
+          - pattern: $DB.collection($COLL).add($REQ.body)
+          - pattern: $DB.collection($COLL).doc($ID).set($REQ.body)
+          - pattern: $DB.collection($COLL).doc($ID).update($REQ.body)
+      - pattern-not-inside: |
+          const $VALIDATED = $SCHEMA.parse($REQ.body)
+          ...
+    message: "Firestore write operation with unvalidated request data. Always validate input before writing to database to prevent injection and data corruption."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 54
+      datahogo_category: "firebase"
+      owasp_ref: "A03:2021 - Injection"
+      cwe: "CWE-20"
+
+  # =============================================================================
+  # GENERAL DATABASE SECURITY
+  # =============================================================================
+
+  # ID 103: Prisma raw queries without parameters
+  - id: datahogo-prisma-raw-query-injection
+    patterns:
+      - pattern-either:
+          - pattern: $PRISMA.$queryRaw(`$...${$VAR}$...`)
+          - pattern: $PRISMA.$executeRaw(`$...${$VAR}$...`)
+      - metavariable-pattern:
+          metavariable: $VAR
+          patterns:
+            - pattern-not: Prisma.sql`$...`
+    message: "Raw Prisma query with template literal interpolation. Use Prisma.sql tagged template or parameterized queries to prevent SQL injection."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 103
+      datahogo_category: "database"
+      owasp_ref: "A03:2021 - Injection"
+      cwe: "CWE-89"
+
+  # ID 103: Sequelize raw queries
+  - id: datahogo-sequelize-raw-query-injection
+    patterns:
+      - pattern-either:
+          - pattern: $SEQUELIZE.query(`$...${$VAR}$...`)
+          - pattern: $SEQUELIZE.query("$..." + $VAR + "$...")
+      - pattern-not: $SEQUELIZE.query($SQL, { replacements: $PARAMS })
+    message: "Sequelize raw query with string interpolation. Use parameterized queries with replacements option to prevent SQL injection."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 103
+      datahogo_category: "database"
+      owasp_ref: "A03:2021 - Injection"
+      cwe: "CWE-89"
+
+  # ID 120: Mass assignment in Prisma
+  - id: datahogo-prisma-mass-assignment
+    patterns:
+      - pattern-either:
+          - pattern: $PRISMA.$MODEL.create({ data: $REQ.body })
+          - pattern: $PRISMA.$MODEL.update({ data: $REQ.body, ... })
+          - pattern: $PRISMA.$MODEL.upsert({ create: $REQ.body, ... })
+          - pattern: $PRISMA.$MODEL.upsert({ update: $REQ.body, ... })
+      - pattern-not-inside: |
+          const { $FIELD1, $FIELD2, ...$REST } = $REQ.body
+          ...
+    message: "Mass assignment in Prisma: request body passed directly to database operation. Whitelist allowed fields to prevent privilege escalation."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 120
+      datahogo_category: "database"
+      owasp_ref: "A01:2021 - Broken Access Control"
+      cwe: "CWE-915"

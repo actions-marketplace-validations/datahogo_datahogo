@@ -1,0 +1,489 @@
+rules:
+  # ID 21: BOLA - Broken Object Level Authorization
+  - id: datahogo-api-bola-no-ownership-check
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export async function $METHOD(req: Request, { params }: { params: { $ID: string } }) {
+                ...
+                $DB.$QUERY({ where: { id: params.$ID } })
+                ...
+              }
+          - pattern: |
+              export async function $METHOD(req: Request) {
+                ...
+                const $ID = $GETID
+                ...
+                $DB.$QUERY({ where: { id: $ID } })
+                ...
+              }
+      - pattern-not: |
+          export async function $METHOD(req: Request, ...) {
+            ...
+            $CLIENT.auth.getUser()
+            ...
+            $DB.$QUERY({ where: { id: $ID, userId: $USERID } })
+            ...
+          }
+      - pattern-not-inside: |
+          if (!$USER || $ITEM.userId !== $USER.id) {
+            ...
+          }
+    message: "API endpoint accesses resource by ID without verifying user ownership. This can lead to unauthorized access (BOLA/IDOR)."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 21
+      datahogo_category: "api"
+      owasp_ref: "API1:2023"
+
+  # ID 22: Broken Authentication - JWT without validation
+  - id: datahogo-api-jwt-decode-only
+    pattern: |
+      jwt.decode($TOKEN)
+    message: "jwt.decode() does not verify the token signature. Use jwt.verify() for secure authentication."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 22
+      datahogo_category: "api"
+      owasp_ref: "API2:2023"
+
+  - id: datahogo-api-jwt-no-expiry
+    patterns:
+      - pattern: |
+          jwt.sign($PAYLOAD, $SECRET)
+      - pattern-not: |
+          jwt.sign($PAYLOAD, $SECRET, { expiresIn: $EXPIRY, ... })
+      - pattern-not: |
+          jwt.sign({ ..., exp: $EXP }, $SECRET, ...)
+    message: "JWT token created without expiration time. Tokens should expire to limit exposure from theft."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 22
+      datahogo_category: "api"
+      owasp_ref: "API2:2023"
+
+  - id: datahogo-api-bearer-token-in-url
+    patterns:
+      - pattern-either:
+          - pattern: "$URL + '?token=' + $TOKEN"
+          - pattern: "`${$URL}?token=${$TOKEN}`"
+          - pattern: "$URL + '&token=' + $TOKEN"
+          - pattern: "`${$URL}&token=${$TOKEN}`"
+    message: "Bearer token passed in URL query parameter. Tokens should be sent in Authorization header to prevent logging/leaking."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 22
+      datahogo_category: "api"
+      owasp_ref: "API2:2023"
+
+  # ID 23: Broken Object Property Authorization - Mass Assignment
+  - id: datahogo-api-mass-assignment-spread
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.$TABLE.update({ where: { id: $ID }, data: { ...$REQ.body } })
+          - pattern: |
+              $DB.$TABLE.create({ data: { ...$REQ.body } })
+          - pattern: |
+              $DB.$TABLE.update({ where: { id: $ID }, data: $REQ.body })
+          - pattern: |
+              $DB.$TABLE.create({ data: $REQ.body })
+      - pattern-not-inside: |
+          const { $ALLOWED, ... } = $REQ.body
+          ...
+    message: "Mass assignment vulnerability: request body spread directly into database update. Whitelist allowed fields to prevent unauthorized property changes."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 23
+      datahogo_category: "api"
+      owasp_ref: "API3:2023"
+
+  - id: datahogo-api-mass-assignment-role
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.user.update({ data: { ...$DATA, role: $ROLE } })
+          - pattern: |
+              $DB.user.update({ data: { role: $REQ.body.role } })
+    message: "User role being set from request data. This allows privilege escalation. Only admins should update roles."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 23
+      datahogo_category: "api"
+      owasp_ref: "API3:2023"
+
+  # ID 24: Unrestricted Resource Consumption - No rate limiting
+  - id: datahogo-api-no-rate-limit-express
+    patterns:
+      - pattern: |
+          $APP.$METHOD($PATH, async ($REQ, $RES) => { ... })
+      - pattern-not-inside: |
+          $APP.use(..., rateLimit(...), ...)
+      - pattern-not-inside: |
+          $APP.$METHOD($PATH, rateLimit(...), async ($REQ, $RES) => { ... })
+    message: "API route has no rate limiting middleware. Add rate limiting to prevent abuse and resource exhaustion."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 24
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  - id: datahogo-api-no-rate-limit-nextjs
+    patterns:
+      - pattern: |
+          export async function POST(req: Request) {
+            ...
+          }
+      - pattern-not-inside: |
+          const $LIMITER = new Ratelimit(...)
+          ...
+          await $LIMITER.limit(...)
+      - metavariable-regex:
+          metavariable: $CONTENT
+          regex: "(login|register|reset|forgot|verify|otp|mfa|2fa)"
+    message: "Authentication endpoint missing rate limiting. Add rate limiting to prevent brute force attacks."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 24
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  # ID 25: Broken Function Level Authorization - Admin endpoints without role check
+  - id: datahogo-api-admin-no-role-check
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export async function $METHOD(req: Request) {
+                ...
+              }
+          - pattern: |
+              $APP.$METHOD('/admin/...', async ($REQ, $RES) => {
+                ...
+              })
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: "(DELETE|POST|PUT|PATCH)"
+      - pattern-not-inside: |
+          if ($USER.role !== 'admin') {
+            ...
+          }
+      - pattern-not-inside: |
+          if (!$USER.isAdmin) {
+            ...
+          }
+    message: "Admin or privileged endpoint missing role-based access control. Verify user role before allowing access."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 25
+      datahogo_category: "api"
+      owasp_ref: "API5:2023"
+
+  - id: datahogo-api-delete-no-auth
+    patterns:
+      - pattern: |
+          export async function DELETE(req: Request, { params }: { params: { $ID: string } }) {
+            ...
+            $DB.$TABLE.delete({ where: { id: params.$ID } })
+            ...
+          }
+      - pattern-not: |
+          export async function DELETE(req: Request, { params }: { params: { $ID: string } }) {
+            ...
+            const { data: { user } } = await $CLIENT.auth.getUser()
+            ...
+            $DB.$TABLE.delete({ where: { id: params.$ID, userId: user.id } })
+            ...
+          }
+    message: "DELETE endpoint allows deletion without verifying ownership or admin role. Add authorization check."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 25
+      datahogo_category: "api"
+      owasp_ref: "API5:2023"
+
+  # ID 27: SSRF in API - fetch with user-controlled URL
+  - id: datahogo-api-ssrf-fetch
+    patterns:
+      - pattern-either:
+          - pattern: |
+              fetch($REQ.body.$URL)
+          - pattern: |
+              fetch($REQ.query.$URL)
+          - pattern: |
+              axios.get($REQ.body.$URL)
+          - pattern: |
+              axios($REQ.body.$URL)
+          - pattern: |
+              fetch(`${$REQ.body.$PATH}`)
+      - pattern-not-inside: |
+          if (!$ALLOWED_URLS.includes($URL)) {
+            ...
+          }
+      - pattern-not-inside: |
+          if (!$URL.startsWith('https://')) {
+            ...
+          }
+    message: "Server-Side Request Forgery (SSRF): fetch/axios called with user-controlled URL. Validate URL against allowlist."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 27
+      datahogo_category: "api"
+      owasp_ref: "API7:2023"
+
+  # ID 28: Verbose errors returned to client
+  - id: datahogo-api-verbose-error
+    patterns:
+      - pattern-either:
+          - pattern: |
+              return Response.json({ error: $ERR.message, stack: $ERR.stack }, ...)
+          - pattern: |
+              return Response.json({ ..., stack: $ERR.stack }, ...)
+          - pattern: |
+              return $RES.status($CODE).json({ error: $ERR, ... })
+          - pattern: |
+              return $RES.json({ error: $ERR.stack, ... })
+    message: "Verbose error details (stack trace or full error object) exposed to client. Return generic error message instead."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 28
+      datahogo_category: "api"
+      owasp_ref: "API8:2023"
+
+  - id: datahogo-api-error-db-details
+    patterns:
+      - pattern: |
+          catch ($ERR) {
+            ...
+            return Response.json({ error: $ERR.message }, ...)
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $ERR
+          regex: "(dbError|queryError|sqlError|prismaError)"
+    message: "Database error message returned to client. This may leak schema information. Return generic error instead."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 28
+      datahogo_category: "api"
+      owasp_ref: "API8:2023"
+
+  # ID 30: Unsafe API consumption - trusting external API without validation
+  - id: datahogo-api-unsafe-external-response
+    patterns:
+      - pattern: |
+          const $RESPONSE = await fetch($EXTERNAL_URL)
+          const $DATA = await $RESPONSE.json()
+          ...
+          $DB.$TABLE.create({ data: $DATA })
+      - pattern-not-inside: |
+          const $SCHEMA = z.object(...)
+          ...
+          $SCHEMA.parse($DATA)
+    message: "External API response used without validation. Validate schema with Zod before using or storing data."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 30
+      datahogo_category: "api"
+      owasp_ref: "API10:2023"
+
+  # ID 94: API docs exposed in production
+  - id: datahogo-api-docs-route
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $APP.use('/swagger', ...)
+          - pattern: |
+              $APP.use('/api-docs', ...)
+          - pattern: |
+              $APP.get('/docs', ...)
+          - pattern: |
+              $APP.use('/graphql', graphiql: true, ...)
+      - pattern-not-inside: |
+          if (process.env.NODE_ENV === 'development') {
+            ...
+          }
+    message: "API documentation endpoint exposed without environment check. Restrict to development only."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 94
+      datahogo_category: "api"
+      owasp_ref: "API9:2023"
+
+  # ID 96: GraphQL query depth - no depth limit
+  - id: datahogo-api-graphql-no-depth-limit
+    patterns:
+      - pattern: |
+          new ApolloServer({ ... })
+      - pattern-not: |
+          new ApolloServer({
+            ...
+            validationRules: [..., depthLimit($LIMIT), ...],
+            ...
+          })
+    message: "GraphQL server without query depth limit. Add depth limiting to prevent resource exhaustion attacks."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 96
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  # ID 97: GraphQL batching attack - no batch size limit
+  - id: datahogo-api-graphql-no-batch-limit
+    patterns:
+      - pattern: |
+          new ApolloServer({ ... })
+      - pattern-not: |
+          new ApolloServer({
+            ...
+            plugins: [..., ApolloServerPluginLandingPageDisabled(), ...],
+            ...
+          })
+      - pattern-not-inside: |
+          if ($ARRAY.length > $LIMIT) {
+            ...
+          }
+    message: "GraphQL server may be vulnerable to batching attacks. Implement query batch size limits."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 97
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  # ID 100: API key scope too broad
+  - id: datahogo-api-key-admin-operations
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $CLIENT = createClient($URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+          - pattern: |
+              Authorization: 'Bearer ' + process.env.ADMIN_API_KEY
+      - pattern-not-inside: |
+          // Service role required for $REASON
+          ...
+      - pattern-not-inside: |
+          // Admin key needed for $REASON
+          ...
+    message: "Admin/service role API key used without justification comment. Use least-privilege keys when possible."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 100
+      datahogo_category: "api"
+      owasp_ref: "API8:2023"
+
+  # ID 196: No request body limit
+  - id: datahogo-api-no-body-limit-express
+    patterns:
+      - pattern: |
+          $APP.use(express.json())
+      - pattern-not: |
+          $APP.use(express.json({ limit: $LIMIT }))
+    message: "express.json() middleware without body size limit. Add limit to prevent resource exhaustion (e.g., { limit: '1mb' })."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 196
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  # ID 197: No rate limiting middleware
+  - id: datahogo-api-missing-global-rate-limit
+    patterns:
+      - pattern: |
+          const $APP = express()
+          ...
+          $APP.listen($PORT)
+      - pattern-not: |
+          const $APP = express()
+          ...
+          $APP.use(rateLimit(...))
+          ...
+          $APP.listen($PORT)
+    message: "Express app without global rate limiting middleware. Add rate limiting to prevent abuse."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 197
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  # ID 198: No request timeout
+  - id: datahogo-api-no-timeout
+    patterns:
+      - pattern-either:
+          - pattern: |
+              fetch($URL)
+          - pattern: |
+              axios.get($URL)
+          - pattern: |
+              axios.post($URL, $DATA)
+      - pattern-not: |
+          fetch($URL, { signal: AbortSignal.timeout($MS) })
+      - pattern-not: |
+          axios.get($URL, { timeout: $MS })
+      - pattern-not: |
+          axios.post($URL, $DATA, { timeout: $MS })
+      - pattern-inside: |
+          export async function $METHOD(req: Request) {
+            ...
+          }
+    message: "HTTP request in API handler without timeout. Add timeout to prevent hung requests from exhausting resources."
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 198
+      datahogo_category: "api"
+      owasp_ref: "API4:2023"
+
+  # ID 199: WebSocket without auth
+  - id: datahogo-api-websocket-no-auth
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $WS.on('connection', ($SOCKET) => {
+                ...
+              })
+          - pattern: |
+              io.on('connection', ($SOCKET) => {
+                ...
+              })
+      - pattern-not: |
+          $WS.on('connection', ($SOCKET) => {
+            ...
+            if (!$SOCKET.handshake.auth.$TOKEN) {
+              ...
+            }
+            ...
+          })
+      - pattern-not: |
+          io.on('connection', ($SOCKET) => {
+            ...
+            if (!$SOCKET.handshake.auth.$TOKEN) {
+              ...
+            }
+            ...
+          })
+    message: "WebSocket connection handler without authentication check. Verify user identity before allowing connections."
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 199
+      datahogo_category: "api"
+      owasp_ref: "API2:2023"

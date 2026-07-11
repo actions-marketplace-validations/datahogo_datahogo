@@ -1,0 +1,380 @@
+rules:
+  # ID 128: Prototype pollution - deepMerge / lodash.merge without proto filter
+  - id: datahogo-prototype-pollution-merge
+    patterns:
+      - pattern-either:
+          - pattern: _.merge($OBJ, $REQ.body)
+          - pattern: _.merge($OBJ, $USER_INPUT)
+          - pattern: lodash.merge($OBJ, $REQ.body)
+          - pattern: deepmerge($OBJ, $REQ.body)
+          - pattern: merge($OBJ, $REQ.body)
+    message: "Merging user-controlled object without sanitization can cause prototype pollution - filter __proto__ and constructor keys"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 128
+      datahogo_category: "node-security"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-prototype-pollution-bracket
+    patterns:
+      - pattern: |
+          $OBJ[$REQ.body.$KEY] = $REQ.body.$VALUE
+      - pattern-not: |
+          if ($KEY !== '__proto__' && $KEY !== 'constructor')
+    message: "Dynamic property assignment with user-controlled key can cause prototype pollution"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 128
+      datahogo_category: "node-security"
+      owasp_ref: "A03:2021"
+
+  - id: datahogo-prototype-pollution-dynamic-key
+    patterns:
+      - pattern: |
+          function $FUNC($OBJ, $KEY, $VALUE) {
+            ...
+            $OBJ[$KEY] = $VALUE
+            ...
+          }
+      - pattern-not: |
+          if ($KEY === '__proto__' || $KEY === 'constructor' || $KEY === 'prototype')
+      - pattern-not: |
+          if (Object.prototype.hasOwnProperty.call(Object.prototype, $KEY))
+    message: "Deep assignment function missing prototype pollution protection - reject __proto__, constructor, and prototype keys"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 128
+      datahogo_category: "node-security"
+      owasp_ref: "A03:2021"
+
+  # ID 129: ReDoS - regex with nested quantifiers
+  - id: datahogo-redos-nested-quantifiers
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $RE = /($PATTERN+)+/
+          - pattern: |
+              const $RE = /($PATTERN*)+/
+          - pattern: |
+              const $RE = /($PATTERN+)*/
+          - pattern: |
+              new RegExp("($PATTERN+)+")
+          - pattern: |
+              new RegExp("($PATTERN*)+")
+    message: "Regex with nested quantifiers (e.g. (a+)+) is vulnerable to ReDoS with crafted input - simplify or use a linear-time library"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 129
+      datahogo_category: "node-security"
+      owasp_ref: "A05:2021"
+
+  - id: datahogo-redos-user-input-regex
+    patterns:
+      - pattern-either:
+          - pattern: new RegExp($REQ.body.$FIELD)
+          - pattern: new RegExp($REQ.query.$PARAM)
+          - pattern: new RegExp($USER_INPUT)
+      - pattern-not: |
+          safe-regex($INPUT)
+    message: "Regex constructed from user input can cause ReDoS or be abused for information disclosure - never allow user-defined regexes"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 129
+      datahogo_category: "node-security"
+      owasp_ref: "A05:2021"
+
+  # ID 130: Insecure randomness
+  - id: datahogo-math-random-id
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $ID = Math.random().toString($BASE).slice($N)
+          - pattern: |
+              const $ID = Math.floor(Math.random() * $N)
+          - pattern: |
+              id: Math.random()
+      - metavariable-regex:
+          metavariable: $ID
+          regex: .*(id|token|key|secret|session|nonce|code).*
+    message: "Math.random() is predictable - use crypto.randomUUID() for IDs or crypto.randomBytes() for tokens"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 130
+      datahogo_category: "node-security"
+      owasp_ref: "A02:2021"
+
+  # ID 131: Service worker without scope
+  - id: datahogo-service-worker-no-scope
+    patterns:
+      - pattern-either:
+          - pattern: |
+              navigator.serviceWorker.register($FILE)
+          - pattern: |
+              navigator.serviceWorker.register($FILE, {})
+      - pattern-not: |
+          navigator.serviceWorker.register($FILE, { scope: $SCOPE })
+    message: "Service worker registered without explicit scope - define scope to limit intercepted requests"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 131
+      datahogo_category: "node-security"
+      owasp_ref: "A05:2021"
+
+  # ID 132: Function timeout missing
+  - id: datahogo-lambda-no-timeout
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export const handler = async (event, context) => {
+                ...
+              }
+          - pattern: |
+              exports.handler = async (event) => {
+                ...
+              }
+      - pattern-not: |
+          context.callbackWaitsForEmptyEventLoop = false
+      - pattern-not: |
+          timeout: $N
+    message: "Serverless function without timeout configuration can be abused for resource exhaustion - configure a timeout"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 132
+      datahogo_category: "serverless-cloud"
+      owasp_ref: "A05:2021"
+
+  # ID 134: console.log(process.env) - env vars in logs
+  - id: datahogo-console-log-process-env
+    patterns:
+      - pattern-either:
+          - pattern: console.log(process.env)
+          - pattern: console.log(..., process.env, ...)
+          - pattern: console.info(process.env)
+          - pattern: console.error(process.env)
+          - pattern: console.log(JSON.stringify(process.env))
+    message: "Logging process.env exposes all environment variables including secrets to logs"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 134
+      datahogo_category: "serverless-cloud"
+      owasp_ref: "A09:2021"
+
+  - id: datahogo-console-log-env-var
+    patterns:
+      - pattern-either:
+          - pattern: console.log(..., process.env.$SECRET_VAR, ...)
+          - pattern: console.log(`...${ process.env.$SECRET_VAR }...`)
+      - metavariable-regex:
+          metavariable: $SECRET_VAR
+          regex: .*(KEY|SECRET|PASSWORD|TOKEN|PRIVATE|CREDENTIAL|PASS|PWD).*
+    message: "Logging secret environment variable exposes sensitive credentials"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 134
+      datahogo_category: "serverless-cloud"
+      owasp_ref: "A09:2021"
+
+  # ID 135: Sensitive files in /tmp
+  - id: datahogo-sensitive-tmp-write
+    patterns:
+      - pattern-either:
+          - pattern: |
+              fs.writeFile("/tmp/$FILENAME", $DATA, ...)
+          - pattern: |
+              fs.writeFileSync("/tmp/$FILENAME", $DATA)
+          - pattern: |
+              fs.writeFile(`/tmp/${$FILENAME}`, ...)
+      - metavariable-regex:
+          metavariable: $FILENAME
+          regex: .*(password|token|key|secret|credential|auth|private).*
+    message: "Writing sensitive data to /tmp - files in /tmp may persist across Lambda invocations and be read by other functions"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 135
+      datahogo_category: "serverless-cloud"
+      owasp_ref: "A02:2021"
+
+  # ID 136: Global variables with user data
+  - id: datahogo-global-user-data
+    patterns:
+      - pattern-either:
+          - pattern: |
+              global.$VAR = $REQ.body
+          - pattern: |
+              global.$VAR = $REQ.user
+          - pattern: |
+              global.$VAR = $USER_DATA
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: .*(user|session|request|auth|current).*
+    message: "Storing user data in global variables causes data leakage between requests in serverless environments"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 136
+      datahogo_category: "serverless-cloud"
+      owasp_ref: "A01:2021"
+
+  # ID 172: Console.log sensitive data
+  - id: datahogo-console-log-sensitive-fields
+    patterns:
+      - pattern-either:
+          - pattern: console.log($OBJ.password)
+          - pattern: console.log($OBJ.passwordHash)
+          - pattern: console.log($OBJ.creditCard)
+          - pattern: console.log($OBJ.ssn)
+          - pattern: console.log($OBJ.secret)
+          - pattern: console.log(`...${ $OBJ.password }...`)
+          - pattern: console.log(`...${ $OBJ.secret }...`)
+    message: "Logging sensitive fields (password, secret, credit card) exposes them in logs"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 172
+      datahogo_category: "best-practices"
+      owasp_ref: "A09:2021"
+
+  - id: datahogo-console-log-credentials-object
+    patterns:
+      - pattern-either:
+          - pattern: console.log({ user: $U, password: $P })
+          - pattern: console.log({ email: $E, password: $P })
+          - pattern: console.log({ ..., password: $P, ... })
+    message: "Logging object with password field will expose credentials in logs"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 172
+      datahogo_category: "best-practices"
+      owasp_ref: "A09:2021"
+
+  # ID 173: Stack traces to user
+  - id: datahogo-error-stack-to-user
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESPONSE.json({ ..., stack: $ERROR.stack, ... })
+          - pattern: |
+              $RESPONSE.json({ error: $ERROR.stack })
+          - pattern: |
+              $RESPONSE.send($ERROR.stack)
+          - pattern: |
+              res.status($CODE).json({ ..., stack: err.stack })
+    message: "Stack trace returned to API caller exposes internal file paths and implementation details"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 173
+      datahogo_category: "best-practices"
+      owasp_ref: "A05:2021"
+
+  - id: datahogo-error-message-to-user-verbose
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESPONSE.json({ error: $ERROR.message })
+          - pattern: |
+              $RESPONSE.status($CODE).json({ message: $ERROR.message })
+      - pattern-not: |
+          if (process.env.NODE_ENV === "development")
+      - pattern-not: |
+          if (isDevelopment)
+    message: "Raw error messages sent to clients may expose internal details - use generic user-facing messages and log full errors server-side"
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 173
+      datahogo_category: "best-practices"
+      owasp_ref: "A05:2021"
+
+  # ID 176: PII in logs
+  - id: datahogo-pii-in-logs-email
+    patterns:
+      - pattern-either:
+          - pattern: console.log(`...${ $USER.email }...`)
+          - pattern: console.log($USER.email)
+          - pattern: logger.info({ email: $EMAIL })
+          - pattern: logger.info(`user email: ${ $EMAIL }`)
+    message: "Logging user email addresses is PII exposure - use user IDs in logs and store emails separately"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 176
+      datahogo_category: "best-practices"
+      owasp_ref: "A09:2021"
+
+  - id: datahogo-pii-in-logs-phone
+    patterns:
+      - pattern-either:
+          - pattern: console.log(`...${ $USER.phone }...`)
+          - pattern: console.log(`...${ $USER.phoneNumber }...`)
+          - pattern: logger.info({ phone: $PHONE })
+          - pattern: logger.info({ phoneNumber: $PHONE })
+    message: "Logging phone numbers is PII exposure - reference users by ID in logs"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 176
+      datahogo_category: "best-practices"
+      owasp_ref: "A09:2021"
+
+  # ID 188: Payment data stored locally
+  - id: datahogo-payment-data-localstorage
+    patterns:
+      - pattern-either:
+          - pattern: localStorage.setItem($KEY, $CARD_DATA)
+          - pattern: sessionStorage.setItem($KEY, $CARD_DATA)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: .*(card|credit|payment|cvv|pan|billing|stripe).*
+    message: "Payment card data must never be stored in localStorage/sessionStorage - violates PCI-DSS compliance"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 188
+      datahogo_category: "best-practices"
+      owasp_ref: "A02:2021"
+
+  - id: datahogo-payment-data-in-db
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.create({ ..., cardNumber: $NUM, ... })
+          - pattern: |
+              $DB.create({ ..., cvv: $CVV, ... })
+          - pattern: |
+              $DB.insert({ ..., card_number: $NUM, ... })
+    message: "Storing raw card numbers or CVV in the database violates PCI-DSS - use a payment processor token instead"
+    severity: CRITICAL
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 188
+      datahogo_category: "best-practices"
+      owasp_ref: "A02:2021"
+
+  # ID 130 Extended: Insecure randomness for session IDs
+  - id: datahogo-insecure-session-id
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $SID = Math.random().toString($BASE).slice($N)
+          - pattern: |
+              sessionId: Math.random().toString($BASE)
+    message: "Session IDs must be generated with cryptographically secure randomness - use crypto.randomBytes(32).toString('hex')"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 130
+      datahogo_category: "node-security"
+      owasp_ref: "A07:2021"

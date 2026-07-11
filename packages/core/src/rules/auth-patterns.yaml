@@ -1,0 +1,406 @@
+rules:
+  # ID 77: Session Fixation - no session regeneration after login
+  - id: datahogo-session-fixation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async function login(...) {
+                ...
+              }
+          - pattern: |
+              async function signin(...) {
+                ...
+              }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            $SESSION.regenerate(...)
+            ...
+          }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            regenerateSession(...)
+            ...
+          }
+    message: "Login function should regenerate session ID to prevent session fixation attacks"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 77
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 79: Weak password policy - no length check
+  - id: datahogo-no-password-length-check
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const password = $INPUT
+              ...
+              $DB.$METHOD({ password: $HASH })
+          - pattern: |
+              function $FUNC($PASSWORD, ...) {
+                ...
+                bcrypt.hash($PASSWORD, ...)
+                ...
+              }
+      - pattern-not: |
+          $PASSWORD.length >= $NUM
+      - pattern-not: |
+          $PASSWORD.length > $NUM
+      - pattern-not: |
+          if ($PASSWORD.length $OP $NUM)
+    message: "Password validation missing length requirement (minimum 8-12 characters recommended)"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 79
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 80: OAuth state missing
+  - id: datahogo-oauth-missing-state
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const authUrl = `$OAUTH_ENDPOINT?client_id=$CLIENT_ID&redirect_uri=$REDIRECT`
+          - pattern: |
+              new URL($OAUTH_URL)
+              ...
+              $URL.searchParams.append('client_id', ...)
+              $URL.searchParams.append('redirect_uri', ...)
+      - pattern-not: |
+          $URL.searchParams.append('state', ...)
+      - pattern-not: |
+          state=$STATE
+    message: "OAuth redirect missing state parameter - vulnerable to CSRF attacks"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 80
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 81: Token not invalidated on logout
+  - id: datahogo-logout-no-invalidation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async function logout(...) {
+                ...
+                $RESPONSE.redirect(...)
+              }
+          - pattern: |
+              async function signout(...) {
+                ...
+              }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            $DB.$METHOD({ token: ... })
+            ...
+          }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            $SESSION.destroy(...)
+            ...
+          }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            blacklist.add(...)
+            ...
+          }
+    message: "Logout function should invalidate tokens or destroy sessions"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 81
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 82: No session invalidation on password change
+  - id: datahogo-password-change-no-session-invalidation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async function changePassword(...) {
+                ...
+                $DB.update({ password: ... })
+                ...
+              }
+          - pattern: |
+              async function updatePassword(...) {
+                ...
+              }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            $SESSION.destroy(...)
+            ...
+          }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            invalidateAllSessions(...)
+            ...
+          }
+    message: "Password change should invalidate all active sessions for security"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 82
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 84: Insecure password reset - no TTL
+  - id: datahogo-password-reset-no-expiry
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const resetToken = $RANDOM
+              ...
+              $DB.save({ resetToken: $TOKEN })
+          - pattern: |
+              function createPasswordResetToken(...) {
+                ...
+                return $TOKEN
+              }
+      - pattern-not: |
+          expiresAt: ...
+      - pattern-not: |
+          expires_at: ...
+      - pattern-not: |
+          expiry: ...
+      - pattern-not: |
+          ttl: ...
+    message: "Password reset token should have an expiration time (15-60 minutes recommended)"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 84
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 85: User enumeration - different error messages
+  - id: datahogo-user-enumeration
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if (!$USER) {
+                throw new Error("User not found")
+              }
+          - pattern: |
+              if (!$USER) {
+                return { error: "User does not exist" }
+              }
+          - pattern: |
+              if (!$USER) {
+                $RESPONSE.status(404).json({ error: "User not found" })
+              }
+    message: "Login error messages should be generic to prevent user enumeration (use 'Invalid credentials')"
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 85
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 156: No password policy enforcement
+  - id: datahogo-no-password-policy
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async function register(..., password: $TYPE, ...) {
+                ...
+                bcrypt.hash(password, ...)
+                ...
+              }
+          - pattern: |
+              async function signup(...) {
+                ...
+                const hashedPassword = await $HASH(password, ...)
+                ...
+              }
+      - pattern-not: |
+          if (password.length $OP $NUM && $REGEX.test(password))
+      - pattern-not: |
+          validatePassword(password)
+      - pattern-not: |
+          passwordSchema.parse(...)
+    message: "Password registration missing policy enforcement (length, complexity, common passwords)"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 156
+      datahogo_category: "best-practices"
+      owasp_ref: "A07:2021"
+
+  # ID 159: No email verification
+  - id: datahogo-no-email-verification
+    patterns:
+      - pattern: |
+          async function register(...) {
+            ...
+            $DB.create({ email: $EMAIL, ... })
+            ...
+          }
+      - pattern-not: |
+          async function register(...) {
+            ...
+            sendVerificationEmail(...)
+            ...
+          }
+      - pattern-not: |
+          async function register(...) {
+            ...
+            emailVerified: false
+            ...
+          }
+    message: "User registration should require email verification to prevent fake accounts"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 159
+      datahogo_category: "best-practices"
+      owasp_ref: "A07:2021"
+
+  # ID 164: No confirmation for critical actions
+  - id: datahogo-no-delete-confirmation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async function deleteAccount(...) {
+                ...
+                $DB.delete(...)
+              }
+          - pattern: |
+              async function DELETE(...) {
+                ...
+                $DB.users.delete(...)
+                ...
+              }
+      - pattern-not: |
+          if ($CONFIRM === $PASSWORD)
+      - pattern-not: |
+          if (confirmed)
+      - pattern-not: |
+          requirePasswordConfirmation(...)
+    message: "Critical actions like account deletion should require password confirmation"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 164
+      datahogo_category: "best-practices"
+      owasp_ref: "A07:2021"
+
+  # ID 77 Extended: Session token reuse after privilege escalation
+  - id: datahogo-session-reuse-privilege-change
+    patterns:
+      - pattern: |
+          async function $FUNC(...) {
+            ...
+            $DB.update({ role: $NEW_ROLE })
+            ...
+          }
+      - pattern-not: |
+          async function $FUNC(...) {
+            ...
+            $SESSION.regenerate(...)
+            ...
+          }
+    message: "Session should be regenerated after privilege changes to prevent session adoption attacks"
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 77
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # ID 80 Extended: OAuth redirect_uri not validated
+  - id: datahogo-oauth-open-redirect
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const redirect_uri = $REQ.query.redirect_uri
+              ...
+              $OAUTH.$METHOD({ redirect_uri })
+          - pattern: |
+              const callbackUrl = $REQ.body.callback
+              ...
+              redirect(callbackUrl)
+      - pattern-not: |
+          if (allowedUrls.includes($URL))
+      - pattern-not: |
+          if ($URL.startsWith($DOMAIN))
+    message: "OAuth redirect_uri should be validated against allowlist to prevent open redirects"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 80
+      datahogo_category: "auth-sessions"
+      owasp_ref: "A07:2021"
+
+  # JWT without expiration
+  - id: datahogo-jwt-no-expiration
+    patterns:
+      - pattern-either:
+          - pattern: |
+              jwt.sign($PAYLOAD, $SECRET)
+          - pattern: |
+              jwt.sign($PAYLOAD, $SECRET, { algorithm: $ALG })
+      - pattern-not: |
+          jwt.sign($PAYLOAD, $SECRET, { ..., expiresIn: ... })
+      - pattern-not: |
+          jwt.sign($PAYLOAD, $SECRET, { ..., exp: ... })
+    message: "JWT tokens should have an expiration time (expiresIn or exp claim)"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 56
+      datahogo_category: "vibecoding"
+      owasp_ref: "A07:2021"
+
+  # Tokens in localStorage
+  - id: datahogo-token-in-localstorage
+    patterns:
+      - pattern-either:
+          - pattern: localStorage.setItem($KEY, $TOKEN)
+          - pattern: sessionStorage.setItem($KEY, $TOKEN)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: .*(token|jwt|auth|session|access|refresh).*
+    message: "Authentication tokens in localStorage/sessionStorage are vulnerable to XSS. Use httpOnly cookies"
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 47
+      datahogo_category: "react-nextjs"
+      owasp_ref: "A07:2021"
+
+  # ID 156 Extended: Common passwords not checked
+  - id: datahogo-no-common-password-check
+    patterns:
+      - pattern: |
+          async function $FUNC(..., password: string, ...) {
+            ...
+            if (password.length >= $NUM) {
+              ...
+            }
+            ...
+          }
+      - pattern-not: |
+          commonPasswords.includes(password)
+      - pattern-not: |
+          isCommonPassword(password)
+      - pattern-not: |
+          hibp.check(password)
+    message: "Password validation should check against common/breached passwords list"
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      datahogo_id: 156
+      datahogo_category: "best-practices"
+      owasp_ref: "A07:2021"

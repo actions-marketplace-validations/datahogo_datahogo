@@ -1,0 +1,44 @@
+{
+  "name": "@datahogo/core",
+  "version": "0.1.0",
+  "description": "Data Hogo scan engine — 300+ security checks for JS/TS, Python, Go, Java, PHP, C#, mobile and Supabase. Runs locally.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datahogo/datahogo.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://datahogo.com",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && cp -R src/rules dist/rules",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "security",
+    "scanner",
+    "sast",
+    "static-analysis",
+    "vulnerability",
+    "secrets-detection"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
