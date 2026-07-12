@@ -1,6 +1,6 @@
 {
   "name": "datahogo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Open-source security scanner that runs on your machine \u2014 your code never leaves your laptop.",
   "license": "AGPL-3.0-only",
   "repository": {
@@ -33,7 +33,7 @@
     "static-analysis"
   ],
   "dependencies": {
-    "@datahogo/core": "^0.1.0",
+    "@datahogo/core": "^0.1.1",
     "ignore": "^5.3.1"
   },
   "devDependencies": {
