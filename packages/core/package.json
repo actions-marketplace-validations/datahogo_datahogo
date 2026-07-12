@@ -1,7 +1,7 @@
 {
   "name": "@datahogo/core",
-  "version": "0.1.0",
-  "description": "Data Hogo scan engine — 300+ security checks for JS/TS, Python, Go, Java, PHP, C#, mobile and Supabase. Runs locally.",
+  "version": "0.1.1",
+  "description": "Data Hogo scan engine \u2014 300+ security checks for JS/TS, Python, Go, Java, PHP, C#, mobile and Supabase. Runs locally.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
